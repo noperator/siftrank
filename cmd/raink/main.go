@@ -17,7 +17,7 @@ func main() {
 	forceJSON := flag.Bool("json", false, "Force JSON parsing regardless of file extension")
 	inputTemplate := flag.String("template", "{{.Data}}", "Template for each object in the input file (prefix with @ to use a file)")
 	batchSize := flag.Int("s", 10, "Number of items per batch")
-	numTrials := flag.Int("r", 3, "Number of trials")
+	numTrials := flag.Int("r", 50, "Number of trials")
 	concurrency := flag.Int("c", 20, "Max concurrent LLM calls across all trials")
 	batchTokens := flag.Int("t", 128000, "Max tokens per batch")
 	initialPrompt := flag.String("p", "", "Initial prompt (prefix with @ to use a file)")
@@ -28,13 +28,13 @@ func main() {
 	encoding := flag.String("encoding", "o200k_base", "Tokenizer encoding")
 
 	dryRun := flag.Bool("dry-run", false, "Enable dry run mode (log API calls without making them)")
-	refinementRatio := flag.Float64("ratio", 0.1, "Refinement ratio as a decimal (e.g., 0.5 for 50%)")
+	refinementRatio := flag.Float64("ratio", 0.5, "Refinement ratio as a decimal (e.g., 0.5 for 50%)")
 	debug := flag.Bool("debug", false, "Enable debug logging")
 
 	noConverge := flag.Bool("no-converge", false, "Disable early stopping based on convergence")
 	elbowTolerance := flag.Float64("elbow-tolerance", 0.05, "Elbow position tolerance (0.05 = 5%)")
 	stableTrials := flag.Int("stable-trials", 5, "Stable trials required for convergence")
-	minTrials := flag.Int("min-trials", 3, "Minimum trials before checking convergence")
+	minTrials := flag.Int("min-trials", 5, "Minimum trials before checking convergence")
 
 	flag.Parse()
 

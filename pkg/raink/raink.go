@@ -140,6 +140,7 @@ type Ranker struct {
 	elbowPositions []int         // Track elbow position after each trial
 	mu             sync.Mutex    // Protect elbowPositions and converged
 	converged      bool          // Track if convergence already detected
+	elbowCutoff    int           // Cutoff position for refinement
 }
 
 func NewRanker(config *Config) (*Ranker, error) {
@@ -461,17 +462,39 @@ func (r *Ranker) rank(documents []document, round int) []RankedDocument {
 	// Process the documents and get the sorted results.
 	results := r.shuffleBatchRank(documents)
 
-	// If the refinement ratio is 0, that effectively means we're refining
-	// _none_ of the top documents, so we're done.
-	if r.cfg.RefinementRatio == 0 {
-		return results
+	// Determine cutoff for refinement
+	var mid int
+
+	if r.cfg.EnableConvergence {
+		// Convergence mode: use elbow cutoff
+		if r.elbowCutoff > 0 && r.elbowCutoff < len(results) {
+			mid = r.elbowCutoff
+			r.cfg.Logger.Debug("Using elbow cutoff for refinement",
+				"round", r.round,
+				"cutoff", mid,
+				"total_docs", len(results))
+		} else {
+			// No valid elbow - don't refine
+			r.cfg.Logger.Debug("No valid elbow cutoff, stopping refinement",
+				"round", r.round,
+				"total_docs", len(results),
+				"elbow_cutoff", r.elbowCutoff)
+			return results
+		}
+	} else {
+		// Non-convergence mode: use ratio
+		if r.cfg.RefinementRatio == 0 {
+			return results
+		}
+		mid = int(float64(len(results)) * r.cfg.RefinementRatio)
+		r.cfg.Logger.Debug("Using ratio cutoff for refinement",
+			"round", r.round,
+			"cutoff", mid,
+			"ratio", r.cfg.RefinementRatio,
+			"total_docs", len(results))
 	}
 
-	// Calculate the mid index based on the refinement ratio.
-	mid := int(float64(len(results)) * r.cfg.RefinementRatio)
-
 	// Ensure we have at least 2 documents for meaningful ranking
-	// (you need at least 2 items to rank against each other)
 	if mid < 2 {
 		return results
 	}
@@ -519,6 +542,7 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 	r.mu.Lock()
 	r.converged = false
 	r.elbowPositions = nil // Also clear elbow history
+	r.elbowCutoff = -1     // Reset cutoff
 	r.mu.Unlock()
 
 	scores := make(map[string][]float64)
@@ -717,6 +741,9 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 		return results[i].Score < results[j].Score
 	})
 
+	// Set elbow cutoff for refinement
+	r.setElbowCutoff(len(results))
+
 	return results
 }
 
@@ -894,6 +921,54 @@ func (r *Ranker) hasConverged(scores map[string][]float64, exposureCounts map[st
 	}
 
 	return stable
+}
+
+// setElbowCutoff determines the cutoff position for refinement based on elbow detection
+func (r *Ranker) setElbowCutoff(numDocuments int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.cfg.EnableConvergence {
+		// Convergence disabled - will use ratio-based approach in rank()
+		r.elbowCutoff = -1
+		return
+	}
+
+	if len(r.elbowPositions) == 0 {
+		// No elbow positions tracked (shouldn't happen, but be defensive)
+		r.elbowCutoff = -1
+		return
+	}
+
+	if r.converged {
+		// Convergence detected - use the last recorded elbow position
+		r.elbowCutoff = r.elbowPositions[len(r.elbowPositions)-1]
+		r.cfg.Logger.Debug("Using converged elbow position for refinement",
+			"round", r.round,
+			"cutoff", r.elbowCutoff,
+			"total_docs", numDocuments)
+	} else {
+		// Max trials reached without convergence - use median of recent positions
+		recentCount := r.cfg.StableTrials
+		if recentCount > len(r.elbowPositions) {
+			recentCount = len(r.elbowPositions)
+		}
+		recentPositions := r.elbowPositions[len(r.elbowPositions)-recentCount:]
+
+		// Calculate median
+		sortedPositions := make([]int, len(recentPositions))
+		copy(sortedPositions, recentPositions)
+		sort.Ints(sortedPositions)
+
+		median := sortedPositions[len(sortedPositions)/2]
+		r.elbowCutoff = median
+
+		r.cfg.Logger.Debug("Using median elbow position for refinement",
+			"round", r.round,
+			"cutoff", r.elbowCutoff,
+			"recent_positions", recentPositions,
+			"total_docs", numDocuments)
+	}
 }
 
 func (r *Ranker) logTokenSizes(group []document) {
