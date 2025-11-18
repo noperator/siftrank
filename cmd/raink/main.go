@@ -22,8 +22,6 @@ func main() {
 	initialPrompt := flag.String("p", "", "Initial prompt (prefix with @ to use a file)")
 	outputFile := flag.String("o", "", "JSON output file")
 
-	ollamaURL := flag.String("ollama-url", "http://localhost:11434/api/chat", "Ollama API URL")
-	ollamaModel := flag.String("ollama-model", "", "Ollama model name (if not set, OpenAI will be used)")
 	oaiModel := flag.String("openai-model", openai.ChatModelGPT4oMini, "OpenAI model name")
 	oaiURL := flag.String("openai-url", "", "OpenAI API base URL (e.g., for OpenAI-compatible API like vLLM)")
 	encoding := flag.String("encoding", "o200k_base", "Tokenizer encoding")
@@ -42,18 +40,13 @@ func main() {
 		Level: logLevel,
 	})).With("component", "raink-cli")
 
-	// This is a heuristic to detect if the user set a custom batch token limit for Ollama
-	if *ollamaModel != "" && *batchTokens == 128000 {
-		*batchTokens = 4096
-	}
-
 	// This "threshold" is a way to add some padding to our estimation of
 	// average token usage per batch. We're effectively leaving 5% of
 	// wiggle room.
 	var tokenLimitThreshold = int(0.95 * float64(*batchTokens))
 
 	if *inputFile == "" {
-		logger.Error("Usage: raink -f <input_file> [-s <batch_size>] [-r <num_runs>] [-p <initial_prompt>] [-t <batch_tokens>] [-ollama-model <model_name>] [-openai-model <model_name>] [-openai-url <base_url>] [-ratio <refinement_ratio>]")
+		logger.Error("Usage: raink -f <input_file> [-s <batch_size>] [-r <num_runs>] [-p <initial_prompt>] [-t <batch_tokens>] [-openai-model <model_name>] [-openai-url <base_url>] [-ratio <refinement_ratio>]")
 		return
 	}
 
@@ -77,13 +70,11 @@ func main() {
 		InitialPrompt:   userPrompt,
 		BatchSize:       *batchSize,
 		NumRuns:         *numRuns,
-		OllamaModel:     *ollamaModel,
 		OpenAIModel:     *oaiModel,
 		TokenLimit:      tokenLimitThreshold,
 		RefinementRatio: *refinementRatio,
 		OpenAIKey:       os.Getenv("OPENAI_API_KEY"),
 		OpenAIAPIURL:    *oaiURL,
-		OllamaAPIURL:    *ollamaURL,
 		Encoding:        *encoding,
 		BatchTokens:     *batchTokens,
 		DryRun:          *dryRun,

@@ -1,6 +1,6 @@
 module github.com/noperator/raink
 
-go 1.23.4
+go 1.23
 
 require (
 	github.com/invopop/jsonschema v0.12.0

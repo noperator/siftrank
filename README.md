@@ -44,12 +44,10 @@ Usage of raink:
     	Force JSON parsing regardless of file extension
   -o string
     	JSON output file
-  -ollama-model string
-    	Ollama model name (if not set, OpenAI will be used)
-  -ollama-url string
-    	Ollama API URL (default "http://localhost:11434/api/chat")
   -openai-model string
     	OpenAI model name (default "gpt-4o-mini")
+  -openai-url string
+    	OpenAI API base URL (e.g., for OpenAI-compatible API like vLLM or Ollama)
   -p string
     	Initial prompt (prefix with @ to use a file)
   -r int

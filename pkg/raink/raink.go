@@ -73,13 +73,11 @@ type Config struct {
 	InitialPrompt   string           `json:"initial_prompt"`
 	BatchSize       int              `json:"batch_size"`
 	NumRuns         int              `json:"num_runs"`
-	OllamaModel     string           `json:"ollama_model"`
 	OpenAIModel     openai.ChatModel `json:"openai_model"`
 	TokenLimit      int              `json:"token_limit"`
 	RefinementRatio float64          `json:"refinement_ratio"`
 	OpenAIKey       string           `json:"-"`
 	OpenAIAPIURL    string           `json:"-"`
-	OllamaAPIURL    string           `json:"-"`
 	Encoding        string           `json:"encoding"`
 	BatchTokens     int              `json:"batch_tokens"`
 	DryRun          bool             `json:"-"`
@@ -100,7 +98,7 @@ func (c *Config) Validate() error {
 	if c.TokenLimit <= 0 {
 		return fmt.Errorf("token limit must be greater than 0")
 	}
-	if c.OllamaModel == "" && c.OpenAIAPIURL == "" && c.OpenAIKey == "" {
+	if c.OpenAIAPIURL == "" && c.OpenAIKey == "" {
 		return fmt.Errorf("openai key cannot be empty")
 	}
 	if c.BatchSize < minBatchSize {
@@ -644,13 +642,7 @@ func (r *Ranker) estimateTokens(group []object, includePrompt bool) int {
 		text += fmt.Sprintf(promptFmt, obj.ID, obj.Value)
 	}
 
-	if r.cfg.OllamaModel != "" {
-		// TODO: Update to use Ollama tokenize API when this PR is merged:
-		// https://github.com/ollama/ollama/pull/6586
-		return len(text) / 4
-	} else {
-		return len(r.encoding.Encode(text, nil, nil))
-	}
+	return len(r.encoding.Encode(text, nil, nil))
 }
 
 func (r *Ranker) rankObjects(group []object, runNumber int, batchNumber int) ([]rankedObject, error) {
@@ -692,11 +684,7 @@ func (r *Ranker) rankObjects(group []object, runNumber int, batchNumber int) ([]
 		}
 
 		var rankedResponse rankedObjectResponse
-		if r.cfg.OllamaModel != "" {
-			rankedResponse, err = r.callOllama(prompt, runNumber, batchNumber, inputIDs)
-		} else {
-			rankedResponse, err = r.callOpenAI(prompt, runNumber, batchNumber, inputIDs)
-		}
+		rankedResponse, err = r.callOpenAI(prompt, runNumber, batchNumber, inputIDs)
 		if err != nil {
 			if attempt == maxRetries-1 {
 				return nil, err
@@ -935,102 +923,5 @@ func (r *Ranker) callOpenAI(prompt string, runNum int, batchNum int, inputIDs ma
 		} else {
 			return rankedObjectResponse{}, fmt.Errorf("run %*d/%d, batch %*d/%d: unexpected error: %w", len(strconv.Itoa(r.cfg.NumRuns)), runNum, r.cfg.NumRuns, len(strconv.Itoa(r.numBatches)), batchNum, r.numBatches, err)
 		}
-	}
-}
-
-func (r *Ranker) callOllama(prompt string, runNum int, batchNum int, inputIDs map[string]bool) (rankedObjectResponse, error) {
-
-	var rankedResponse rankedObjectResponse
-
-	// Initialize the conversation history with the initial prompt
-	conversationHistory := []map[string]interface{}{
-		{"role": "user", "content": prompt},
-	}
-
-	for {
-
-		requestBody, err := json.Marshal(map[string]interface{}{
-			"model":    r.cfg.OllamaModel,
-			"stream":   false,
-			"format":   "json",
-			"num_ctx":  r.cfg.BatchTokens,
-			"messages": conversationHistory,
-		})
-		if err != nil {
-			return rankedObjectResponse{}, fmt.Errorf("error creating Ollama API request body: %w", err)
-		}
-
-		req, err := http.NewRequest("POST", r.cfg.OllamaAPIURL, bytes.NewReader(requestBody))
-		if err != nil {
-			return rankedObjectResponse{}, fmt.Errorf("error creating Ollama API request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-
-		client := &http.Client{}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return rankedObjectResponse{}, fmt.Errorf("error making request to Ollama API: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return rankedObjectResponse{}, fmt.Errorf("Ollama API returned an error: %v, body: %s", resp.StatusCode, body)
-		}
-
-		responseBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return rankedObjectResponse{}, fmt.Errorf("error reading Ollama API response body: %w", err)
-		}
-
-		var ollamaResponse struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		}
-
-		err = json.Unmarshal(responseBody, &ollamaResponse)
-		if err != nil {
-			return rankedObjectResponse{}, fmt.Errorf("error parsing Ollama API response: %w", err)
-		}
-
-		conversationHistory = append(
-			conversationHistory,
-			map[string]interface{}{
-				"role":    "assistant",
-				"content": ollamaResponse.Message.Content,
-			},
-		)
-
-		err = json.Unmarshal([]byte(ollamaResponse.Message.Content), &rankedResponse)
-		if err != nil {
-			r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Error unmarshalling response: %v\n", err))
-			conversationHistory = append(conversationHistory,
-				map[string]interface{}{
-					"role":    "user",
-					"content": invalidJSONStr,
-				},
-			)
-			trimmedContent := strings.TrimSpace(ollamaResponse.Message.Content)
-			r.cfg.Logger.Debug("Ollama API response", "content", trimmedContent)
-			continue
-		}
-
-		missingIDs, err := validateIDs(&rankedResponse, inputIDs)
-		if err != nil {
-			r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Missing IDs: [%s]", strings.Join(missingIDs, ", ")))
-			conversationHistory = append(conversationHistory,
-				map[string]interface{}{
-					"role":    "user",
-					"content": fmt.Sprintf(missingIDsStr, strings.Join(missingIDs, ", ")),
-				},
-			)
-			trimmedContent := strings.TrimSpace(ollamaResponse.Message.Content)
-			r.cfg.Logger.Debug("Ollama API response", "content", trimmedContent)
-			continue
-		}
-
-		return rankedResponse, nil
 	}
 }
