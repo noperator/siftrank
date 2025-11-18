@@ -19,7 +19,7 @@ func TestNewRanker(t *testing.T) {
 			config: &Config{
 				InitialPrompt:   "test prompt",
 				BatchSize:       5,
-				NumRuns:         2,
+				NumTrials:       2,
 				Concurrency:     20,
 				OpenAIModel:     openai.ChatModelGPT4oMini,
 				TokenLimit:      1000,
@@ -36,7 +36,7 @@ func TestNewRanker(t *testing.T) {
 			config: &Config{
 				InitialPrompt: "",
 				BatchSize:     5,
-				NumRuns:       2,
+				NumTrials:     2,
 				OpenAIModel:   openai.ChatModelGPT4oMini,
 				TokenLimit:    1000,
 				OpenAIKey:     "test-key",
@@ -49,7 +49,7 @@ func TestNewRanker(t *testing.T) {
 			config: &Config{
 				InitialPrompt: "test",
 				BatchSize:     1, // Less than minBatchSize (2)
-				NumRuns:       2,
+				NumTrials:     2,
 				OpenAIModel:   openai.ChatModelGPT4oMini,
 				TokenLimit:    1000,
 				OpenAIKey:     "test-key",
@@ -62,7 +62,7 @@ func TestNewRanker(t *testing.T) {
 			config: &Config{
 				InitialPrompt: "test",
 				BatchSize:     5,
-				NumRuns:       2,
+				NumTrials:     2,
 				OpenAIModel:   openai.ChatModelGPT4oMini,
 				TokenLimit:    1000,
 				OpenAIKey:     "", // Empty key
@@ -104,7 +104,7 @@ func TestRankFromFile_DryRun(t *testing.T) {
 	config := &Config{
 		InitialPrompt:   "Rank by alphabetical order",
 		BatchSize:       3, // Set to 3 to include all items
-		NumRuns:         1,
+		NumTrials:       1,
 		Concurrency:     20,
 		OpenAIModel:     openai.ChatModelGPT4oMini,
 		TokenLimit:      1000,
@@ -173,7 +173,7 @@ func TestRankFromFile_WithSentencesData(t *testing.T) {
 	config := &Config{
 		InitialPrompt:   `Rank each of these items according to their relevancy to the concept of "time".`,
 		BatchSize:       10,
-		NumRuns:         3,
+		NumTrials:       3,
 		Concurrency:     20,
 		OpenAIModel:     openai.ChatModelGPT4oMini,
 		TokenLimit:      100000,
@@ -277,7 +277,7 @@ func TestRankFromFile_Errors(t *testing.T) {
 	config := &Config{
 		InitialPrompt:   "test prompt",
 		BatchSize:       5,
-		NumRuns:         3,
+		NumTrials:       3,
 		Concurrency:     20,
 		OpenAIModel:     openai.ChatModelGPT4oMini,
 		TokenLimit:      1000,

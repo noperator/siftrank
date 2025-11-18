@@ -17,8 +17,8 @@ func main() {
 	forceJSON := flag.Bool("json", false, "Force JSON parsing regardless of file extension")
 	inputTemplate := flag.String("template", "{{.Data}}", "Template for each object in the input file (prefix with @ to use a file)")
 	batchSize := flag.Int("s", 10, "Number of items per batch")
-	numRuns := flag.Int("r", 3, "Number of runs")
-	concurrency := flag.Int("c", 20, "Max concurrent LLM calls across all runs")
+	numTrials := flag.Int("r", 3, "Number of trials")
+	concurrency := flag.Int("c", 20, "Max concurrent LLM calls across all trials")
 	batchTokens := flag.Int("t", 128000, "Max tokens per batch")
 	initialPrompt := flag.String("p", "", "Initial prompt (prefix with @ to use a file)")
 	outputFile := flag.String("o", "", "JSON output file")
@@ -47,7 +47,7 @@ func main() {
 	var tokenLimitThreshold = int(0.95 * float64(*batchTokens))
 
 	if *inputFile == "" {
-		logger.Error("Usage: raink -f <input_file> [-s <batch_size>] [-r <num_runs>] [-p <initial_prompt>] [-t <batch_tokens>] [-openai-model <model_name>] [-openai-url <base_url>] [-ratio <refinement_ratio>]")
+		logger.Error("Usage: raink -f <input_file> [-s <batch_size>] [-r <num_trials>] [-p <initial_prompt>] [-t <batch_tokens>] [-openai-model <model_name>] [-openai-url <base_url>] [-ratio <refinement_ratio>]")
 		return
 	}
 
@@ -70,7 +70,7 @@ func main() {
 	config := &raink.Config{
 		InitialPrompt:   userPrompt,
 		BatchSize:       *batchSize,
-		NumRuns:         *numRuns,
+		NumTrials:       *numTrials,
 		Concurrency:     *concurrency,
 		OpenAIModel:     *oaiModel,
 		TokenLimit:      tokenLimitThreshold,

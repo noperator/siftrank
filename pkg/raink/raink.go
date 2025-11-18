@@ -73,7 +73,7 @@ When deciding whether a value belongs in Config or Ranker structs, consider the 
 type Config struct {
 	InitialPrompt   string           `json:"initial_prompt"`
 	BatchSize       int              `json:"batch_size"`
-	NumRuns         int              `json:"num_runs"`
+	NumTrials       int              `json:"num_trials"`
 	Concurrency     int              `json:"concurrency"`
 	OpenAIModel     openai.ChatModel `json:"openai_model"`
 	TokenLimit      int              `json:"token_limit"`
@@ -94,8 +94,8 @@ func (c *Config) Validate() error {
 	if c.BatchSize <= 0 {
 		return fmt.Errorf("batch size must be greater than 0")
 	}
-	if c.NumRuns <= 0 {
-		return fmt.Errorf("number of runs must be greater than 0")
+	if c.NumTrials <= 0 {
+		return fmt.Errorf("number of trials must be greater than 0")
 	}
 	if c.Concurrency <= 0 {
 		return fmt.Errorf("concurrency must be greater than 0")
@@ -488,9 +488,9 @@ func (r *Ranker) rank(objects []object, round int) []RankedObject {
 	return finalResults
 }
 
-func (r *Ranker) logFromApiCall(runNum, batchNum int, message string, args ...interface{}) {
+func (r *Ranker) logFromApiCall(trialNum, batchNum int, message string, args ...interface{}) {
 	formattedMessage := fmt.Sprintf(message, args...)
-	r.cfg.Logger.Debug(formattedMessage, "round", r.round, "run", runNum, "total_runs", r.cfg.NumRuns, "batch", batchNum, "total_batches", r.numBatches)
+	r.cfg.Logger.Debug(formattedMessage, "round", r.round, "trial", trialNum, "total_trials", r.cfg.NumTrials, "batch", batchNum, "total_batches", r.numBatches)
 }
 
 func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
@@ -499,7 +499,7 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 	var scoresMutex sync.Mutex
 
 	type workItem struct {
-		runNum   int
+		trialNum int
 		batchNum int
 		batch    []object
 	}
@@ -507,7 +507,7 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 	type batchResult struct {
 		rankedObjects []rankedObject
 		err           error
-		runNumber     int
+		trialNumber   int
 		batchNumber   int
 	}
 
@@ -515,34 +515,34 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Ensure cleanup
 
-	// Channel for work items (sized for all batches across all runs)
-	workQueue := make(chan workItem, r.numBatches*r.cfg.NumRuns)
+	// Channel for work items (sized for all batches across all trials)
+	workQueue := make(chan workItem, r.numBatches*r.cfg.NumTrials)
 
 	// Channel for results
 	resultsChan := make(chan batchResult, r.cfg.Concurrency)
 
-	var firstRunRemainderItems []object
+	var firstTrialRemainderItems []object
 
-	// Load work queue depth-first (all of run 1, then all of run 2, etc.)
-	for runNum := 1; runNum <= r.cfg.NumRuns; runNum++ {
-		// Shuffle objects for this run
+	// Load work queue depth-first (all of trial 1, then all of trial 2, etc.)
+	for trialNum := 1; trialNum <= r.cfg.NumTrials; trialNum++ {
+		// Shuffle objects for this trial
 		shuffledObjects := make([]object, len(objects))
 		copy(shuffledObjects, objects)
 		r.rng.Shuffle(len(shuffledObjects), func(i, j int) {
 			shuffledObjects[i], shuffledObjects[j] = shuffledObjects[j], shuffledObjects[i]
 		})
 
-		// Ensure remainder items from the first run are not in the remainder
-		// range in the second run
-		if runNum == 2 && len(firstRunRemainderItems) > 0 {
+		// Ensure remainder items from the first trial are not in the remainder
+		// range in the second trial
+		if trialNum == 2 && len(firstTrialRemainderItems) > 0 {
 			for {
 				remainderStart := r.numBatches * r.cfg.BatchSize
 				remainderItems := shuffledObjects[remainderStart:]
 				conflictFound := false
 				for _, item := range remainderItems {
-					for _, firstRunItem := range firstRunRemainderItems {
-						if item.ID == firstRunItem.ID {
-							r.cfg.Logger.Debug("Conflicting remainder item found", "current", item, "first_run", firstRunItem)
+					for _, firstTrialItem := range firstTrialRemainderItems {
+						if item.ID == firstTrialItem.ID {
+							r.cfg.Logger.Debug("Conflicting remainder item found", "current", item, "first_trial", firstTrialItem)
 							conflictFound = true
 							break
 						}
@@ -561,21 +561,21 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 			}
 		}
 
-		// Save remainder items from the first run
-		if runNum == 1 {
+		// Save remainder items from the first trial
+		if trialNum == 1 {
 			remainderStart := r.numBatches * r.cfg.BatchSize
 			if remainderStart < len(shuffledObjects) {
-				firstRunRemainderItems = make([]object, len(shuffledObjects[remainderStart:]))
-				copy(firstRunRemainderItems, shuffledObjects[remainderStart:])
-				r.cfg.Logger.Debug("First run remainder items", "items", firstRunRemainderItems)
+				firstTrialRemainderItems = make([]object, len(shuffledObjects[remainderStart:]))
+				copy(firstTrialRemainderItems, shuffledObjects[remainderStart:])
+				r.cfg.Logger.Debug("First trial remainder items", "items", firstTrialRemainderItems)
 			}
 		}
 
-		// Queue all batches for this run
+		// Queue all batches for this trial
 		for batchNum := 0; batchNum < r.numBatches; batchNum++ {
 			batch := shuffledObjects[batchNum*r.cfg.BatchSize : (batchNum+1)*r.cfg.BatchSize]
 			workQueue <- workItem{
-				runNum:   runNum,
+				trialNum: trialNum,
 				batchNum: batchNum + 1, // 1-indexed for logging
 				batch:    batch,
 			}
@@ -595,7 +595,7 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 				select {
 				case <-ctx.Done():
 					r.cfg.Logger.Debug("Worker stopping due to convergence",
-						"run", work.runNum, "batch", work.batchNum)
+						"trial", work.trialNum, "batch", work.batchNum)
 					continue // Skip this work item
 				default:
 					// Continue processing
@@ -605,7 +605,7 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 				r.semaphore <- struct{}{}
 
 				// Process batch
-				rankedBatch, err := r.rankObjects(work.batch, work.runNum, work.batchNum)
+				rankedBatch, err := r.rankObjects(work.batch, work.trialNum, work.batchNum)
 
 				// Release semaphore
 				<-r.semaphore
@@ -614,7 +614,7 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 				resultsChan <- batchResult{
 					rankedObjects: rankedBatch,
 					err:           err,
-					runNumber:     work.runNum,
+					trialNumber:   work.trialNum,
 					batchNumber:   work.batchNum,
 				}
 			}
@@ -627,8 +627,8 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 		close(resultsChan)
 	}()
 
-	// Track run completion
-	completedBatches := make(map[int]int) // runNum -> count of completed batches
+	// Track trial completion
+	completedBatches := make(map[int]int) // trialNum -> count of completed batches
 
 	// Collect results
 	for result := range resultsChan {
@@ -645,16 +645,16 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 		}
 		scoresMutex.Unlock()
 
-		// Track run completion
-		completedBatches[result.runNumber]++
+		// Track trial completion
+		completedBatches[result.trialNumber]++
 
-		// Check if this run just completed
-		if completedBatches[result.runNumber] == r.numBatches {
-			r.cfg.Logger.Info("Run completed", "run", result.runNumber)
+		// Check if this trial just completed
+		if completedBatches[result.trialNumber] == r.numBatches {
+			r.cfg.Logger.Info("Trial completed", "trial", result.trialNumber)
 
 			// Check for convergence
-			if r.hasConverged(scores, exposureCounts, result.runNumber) {
-				r.cfg.Logger.Info("Convergence detected, stopping early", "run", result.runNumber)
+			if r.hasConverged(scores, exposureCounts, result.trialNumber) {
+				r.cfg.Logger.Info("Convergence detected, stopping early", "trial", result.trialNumber)
 				cancel() // Signal all workers to stop processing new work
 				// break    // Stop collecting results
 			}
@@ -694,15 +694,15 @@ func (r *Ranker) shuffleBatchRank(objects []object) []RankedObject {
 	return results
 }
 
-// hasConverged checks if the ranking has stabilized across runs
+// hasConverged checks if the ranking has stabilized across trials
 // Returns true if early stopping should occur
-func (r *Ranker) hasConverged(scores map[string][]float64, exposureCounts map[string]int, completedRunNum int) bool {
+func (r *Ranker) hasConverged(scores map[string][]float64, exposureCounts map[string]int, completedTrialNum int) bool {
 	// FUTURE: Implement convergence detection
 	// Could check:
 	// - Standard deviation of scores for each item
-	// - Rank position stability across recent runs
-	// - Score differences between consecutive runs
-	// - Minimum number of runs completed before allowing convergence
+	// - Rank position stability across recent trials
+	// - Score differences between consecutive trials
+	// - Minimum number of trials completed before allowing convergence
 
 	// For now, never converge early
 	return false
@@ -754,7 +754,7 @@ func (r *Ranker) estimateTokens(group []object, includePrompt bool) int {
 	return len(r.encoding.Encode(text, nil, nil))
 }
 
-func (r *Ranker) rankObjects(group []object, runNumber int, batchNumber int) ([]rankedObject, error) {
+func (r *Ranker) rankObjects(group []object, trialNumber int, batchNumber int) ([]rankedObject, error) {
 	if r.cfg.DryRun {
 		r.cfg.Logger.Debug("Dry run API call")
 		// Simulate a ranked response for dry run
@@ -793,12 +793,12 @@ func (r *Ranker) rankObjects(group []object, runNumber int, batchNumber int) ([]
 		}
 
 		var rankedResponse rankedObjectResponse
-		rankedResponse, err = r.callOpenAI(prompt, runNumber, batchNumber, inputIDs)
+		rankedResponse, err = r.callOpenAI(prompt, trialNumber, batchNumber, inputIDs)
 		if err != nil {
 			if attempt == maxRetries-1 {
 				return nil, err
 			}
-			r.logFromApiCall(runNumber, batchNumber, "API call failed, retrying with new memorable IDs (attempt %d): %v", attempt+1, err)
+			r.logFromApiCall(trialNumber, batchNumber, "API call failed, retrying with new memorable IDs (attempt %d): %v", attempt+1, err)
 			continue
 		}
 
@@ -824,7 +824,7 @@ func (r *Ranker) rankObjects(group []object, runNumber int, batchNumber int) ([]
 			if attempt == maxRetries-1 {
 				return nil, fmt.Errorf("missing IDs after %d attempts: %v", maxRetries, missingIDs)
 			}
-			r.logFromApiCall(runNumber, batchNumber, "Missing IDs, retrying with new memorable IDs (attempt %d): %v", attempt+1, missingIDs)
+			r.logFromApiCall(trialNumber, batchNumber, "Missing IDs, retrying with new memorable IDs (attempt %d): %v", attempt+1, missingIDs)
 			continue
 		}
 
@@ -911,7 +911,7 @@ func validateIDs(rankedResponse *rankedObjectResponse, inputIDs map[string]bool)
 	}
 }
 
-func (r *Ranker) callOpenAI(prompt string, runNum int, batchNum int, inputIDs map[string]bool) (rankedObjectResponse, error) {
+func (r *Ranker) callOpenAI(prompt string, trialNum int, batchNum int, inputIDs map[string]bool) (rankedObjectResponse, error) {
 
 	customTransport := &customTransport{Transport: http.DefaultTransport}
 	customClient := &http.Client{Transport: customTransport}
@@ -967,7 +967,7 @@ func (r *Ranker) callOpenAI(prompt string, runNum int, batchNum int, inputIDs ma
 
 			err = json.Unmarshal([]byte(completion.Choices[0].Message.Content), &rankedResponse)
 			if err != nil {
-				r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Error unmarshalling response: %v\n", err))
+				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Error unmarshalling response: %v\n", err))
 				conversationHistory = append(conversationHistory,
 					openai.UserMessage(invalidJSONStr),
 				)
@@ -978,7 +978,7 @@ func (r *Ranker) callOpenAI(prompt string, runNum int, batchNum int, inputIDs ma
 
 			missingIDs, err := validateIDs(&rankedResponse, inputIDs)
 			if err != nil {
-				r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Missing IDs: [%s]", strings.Join(missingIDs, ", ")))
+				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Missing IDs: [%s]", strings.Join(missingIDs, ", ")))
 				conversationHistory = append(conversationHistory,
 					openai.UserMessage(fmt.Sprintf(missingIDsStr, strings.Join(missingIDs, ", "))),
 				)
@@ -991,7 +991,7 @@ func (r *Ranker) callOpenAI(prompt string, runNum int, batchNum int, inputIDs ma
 		}
 
 		if err == context.DeadlineExceeded {
-			r.logFromApiCall(runNum, batchNum, "Context deadline exceeded, retrying...")
+			r.logFromApiCall(trialNum, batchNum, "Context deadline exceeded, retrying...")
 			time.Sleep(backoff)
 			backoff *= 2
 			continue
@@ -1001,16 +1001,16 @@ func (r *Ranker) callOpenAI(prompt string, runNum int, batchNum int, inputIDs ma
 			for key, values := range customTransport.Headers {
 				if strings.HasPrefix(key, "X-Ratelimit") {
 					for _, value := range values {
-						r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Rate limit header: %s: %s", key, value))
+						r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Rate limit header: %s: %s", key, value))
 					}
 				}
 			}
 
 			respBody := customTransport.Body
 			if respBody == nil {
-				r.logFromApiCall(runNum, batchNum, "Error reading response body: %v", "response body is nil")
+				r.logFromApiCall(trialNum, batchNum, "Error reading response body: %v", "response body is nil")
 			} else {
-				r.logFromApiCall(runNum, batchNum, "Response body: %s", string(respBody))
+				r.logFromApiCall(trialNum, batchNum, "Response body: %s", string(respBody))
 			}
 
 			remainingTokensStr := customTransport.Headers.Get("X-Ratelimit-Remaining-Tokens")
@@ -1019,18 +1019,18 @@ func (r *Ranker) callOpenAI(prompt string, runNum int, batchNum int, inputIDs ma
 			remainingTokens, _ := strconv.Atoi(remainingTokensStr)
 			resetDuration, _ := time.ParseDuration(strings.Replace(resetTokensStr, "s", "s", 1))
 
-			r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Rate limit exceeded. Suggested wait time: %v. Remaining tokens: %d", resetDuration, remainingTokens))
+			r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Rate limit exceeded. Suggested wait time: %v. Remaining tokens: %d", resetDuration, remainingTokens))
 
 			if resetDuration > 0 {
-				r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Waiting for %v before retrying...", resetDuration))
+				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Waiting for %v before retrying...", resetDuration))
 				time.Sleep(resetDuration)
 			} else {
-				r.logFromApiCall(runNum, batchNum, fmt.Sprintf("Waiting for %v before retrying...", backoff))
+				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Waiting for %v before retrying...", backoff))
 				time.Sleep(backoff)
 				backoff *= 2
 			}
 		} else {
-			return rankedObjectResponse{}, fmt.Errorf("run %*d/%d, batch %*d/%d: unexpected error: %w", len(strconv.Itoa(r.cfg.NumRuns)), runNum, r.cfg.NumRuns, len(strconv.Itoa(r.numBatches)), batchNum, r.numBatches, err)
+			return rankedObjectResponse{}, fmt.Errorf("trial %*d/%d, batch %*d/%d: unexpected error: %w", len(strconv.Itoa(r.cfg.NumTrials)), trialNum, r.cfg.NumTrials, len(strconv.Itoa(r.numBatches)), batchNum, r.numBatches, err)
 		}
 	}
 }
