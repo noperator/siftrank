@@ -33,42 +33,36 @@ Set your `OPENAI_API_KEY` environment variable.
 
 ```
 siftrank -h
-Usage of siftrank:
-  -dry-run
-    	Enable dry run mode (log API calls without making them)
-  -encoding string
-    	Tokenizer encoding (default "o200k_base")
-  -f string
-    	Input file
-  -json
-    	Force JSON parsing regardless of file extension
-  -o string
-    	JSON output file
-  -openai-model string
-    	OpenAI model name (default "gpt-4o-mini")
-  -openai-url string
-    	OpenAI API base URL (e.g., for OpenAI-compatible API like vLLM or Ollama)
-  -p string
-    	Initial prompt (prefix with @ to use a file)
-  -r int
-    	Number of runs (default 10)
-  -ratio float
-    	Refinement ratio as a decimal (e.g., 0.5 for 50%) (default 0.5)
-  -s int
-    	Number of items per batch (default 10)
-  -t int
-    	Max tokens per batch (default 128000)
-  -template string
-    	Template for each object in the input file (prefix with @ to use a file) (default "{{.Data}}")
+
+Flags:
+  -u, --base-url string         OpenAI API base URL (for compatible APIs like vLLM)
+  -b, --batch-size int          number of items per batch (default 10)
+  -c, --concurrency int         max concurrent LLM calls across all trials (default 50)
+  -d, --debug                   enable debug logging
+      --dry-run                 log API calls without making them
+      --elbow-tolerance float   elbow position tolerance (0.05 = 5%) (default 0.05)
+      --encoding string         tokenizer encoding (default "o200k_base")
+  -f, --file string             input file (required)
+  -h, --help                    help for siftrank
+      --json                    force JSON parsing regardless of file extension
+      --max-trials int          maximum number of ranking trials (default 50)
+      --min-trials int          minimum trials before checking convergence (default 5)
+  -m, --model string            OpenAI model name (default "gpt-4o-mini")
+      --no-converge             disable early stopping based on convergence
+  -o, --output string           JSON output file
+  -p, --prompt string           initial prompt (prefix with @ to use a file)
+      --ratio float             refinement ratio (0.0-1.0, e.g. 0.5 = top 50%) (default 0.5)
+  -r, --reasoning               collect and summarize reasoning for rankings (skips round 1)
+      --stable-trials int       stable trials required for convergence (default 5)
+      --template string         template for each object (prefix with @ to use a file) (default "{{.Data}}")
+      --tokens int              max tokens per batch (default 128000)
 ```
 
-Compares 100 [sentences](https://github.com/noperator/siftrank/blob/main/testdata/sentences.txt) in under 2 min.
+Compares 100 [sentences](https://github.com/noperator/siftrank/blob/main/testdata/sentences.txt) in 7 seconds.
 
 ```
 siftrank \
     -f testdata/sentences.txt \
-    -r 10 \
-    -s 10 \
     -p 'Rank each of these items according to their relevancy to the concept of "time".' |
     jq -r '.[:10] | map(.value)[]' |
     nl
@@ -95,18 +89,18 @@ For instance, two objects would be loaded and ranked from this document:
 [
   {
     "path": "/foo",
-    "code": "bar",
+    "code": "bar"
   },
   {
     "path": "/baz",
-    "code": "nope",
+    "code": "nope"
   }
 ]
 ```
 
 #### Templates
 
-It is possible to include each element from the input file in a template using the [Go template syntax](https://pkg.go.dev/text/template) via the `-template "template string"` (or `-template @file.tpl`) argument.
+It is possible to include each element from the input file in a template using the [Go template syntax](https://pkg.go.dev/text/template) via the `--template "template string"` (or `--template @file.tpl`) argument.
 
 For text input files, each line can be referenced in the template with the `Data` variable:
 
@@ -137,9 +131,9 @@ seq 9 |
 # Use template to extract the first element of the nums array in each input object.
 siftrank \
 	-f input.json \
-	-template '{{ index .nums 0 }}' \
 	-p 'Which is biggest?' \
-	-r 1 |
+	--template '{{ index .nums 0 }}' \
+	--max-trials 1 |
 	jq -c '.[]'
 
 {"key":"eQJpm-Qs","value":"7","object":{"nums":[7,8,9]},"score":0,"exposure":1,"rank":1}
@@ -161,23 +155,31 @@ siftrank \
 
 ### To-do
 
-- [x] parallelize openai calls for each run
-- [x] save time by using shorter hash ids
-- [x] make sure that each randomized run is evenly split into groups so each one gets included/exposed
+- [ ] add python bindings?
+- [ ] add visualization
 - [ ] allow specifying an input _directory_ (where each file is distinct object)
-- [x] alert if the incoming context window is super large
-- [x] some batches near the end of a run (9?) are small for some reason
+- [ ] clarify when prompt included in token estimate
+- [ ] factor LLM calls out into a separate package
 - [ ] run openai batch mode
+- [ ] report cost + token usage
+
+<details><summary>Completed</summary>
+
+- [x] add blog link
+- [x] add parameter for refinement ratio
+- [x] add ~boolean~ refinement ratio flag
+- [x] alert if the incoming context window is super large
 - [x] automatically calculate optimal batch size?
 - [x] explore "tournament" sort vs complete exposure each time
-- [x] add parameter for refinement ratio
-- [x] add blog link
-- [x] support non-OpenAI models
-- [x] add ~boolean~ refinement ratio flag
+- [x] make sure that each randomized run is evenly split into groups so each one gets included/exposed
+- [x] parallelize openai calls for each run
+- [x] remove token limit threshold? potentially confusing/unnecessary
+- [x] save time by using shorter hash ids
 - [x] separate package and cli tool
-- [ ] ~~add python bindings?~~
-- [ ] clarify when prompt included in token estimate
-- [ ] remove token limit threshold? potentially confusing/unnecessary
+- [x] some batches near the end of a run (9?) are small for some reason
+- [x] support non-OpenAI models
+
+</details>
 
 ### License
 
