@@ -984,6 +984,13 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 		}
 		r.mu.Unlock()
 
+		// Log batch completion at debug level
+		r.cfg.Logger.Debug("Batch completed",
+			"round", r.round,
+			"trial", result.trialNumber,
+			"batch", result.batchNumber,
+			"total_batches", r.numBatches)
+
 		// Track trial completion
 		completedBatches[result.trialNumber]++
 
@@ -1641,6 +1648,11 @@ func (r *Ranker) callOpenAI(ctx context.Context, prompt string, trialNum int, ba
 			Model: r.cfg.OpenAIModel,
 		})
 		if err == nil {
+			// Log successful API call (before validation)
+			r.cfg.Logger.Debug("LLM call completed",
+				"round", r.round,
+				"trial", trialNum,
+				"batch", batchNum)
 
 			conversationHistory = append(conversationHistory,
 				openai.AssistantMessage(completion.Choices[0].Message.Content),
