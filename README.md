@@ -9,13 +9,19 @@
 
 ## Description
 
-There's power in AI in that you can "throw a problem at it" and get some result, without even fully defining the problem. For example, give it a bunch of code diffs and a security advisory, and ask, "Which of these diffs seems most likely to fix the security bug?" However, it's not always that easy:
-- nondeterminism: doesn't always respond with the same result
-- context window: can't pass in all the data at once, need to break it up
-- output contraints: sometimes doesn't return all the data you asked it to review
-- subjectivity in scoring: has a really hard time assigning a numeric score to an individual item
+Got a bunch of data? Want to throw it at an LLM to find the most "interesting" stuff? If you simply YOLO your data into a ChatGPT session, you'll run into problems:
+- Nondeterminism: Doesn't always respond with the same result
+- Limited context: Can't pass in all the data at once, need to break it up
+- Output contraints: Sometimes doesn't return all the data you asked it to review
+- Scoring subjectivity: Struggles to assign a consistent numeric score to an individual item
 
-We built siftrank to circumvent those issues and solve general ranking problems that are otherwise difficult for LLMs to process. See our blog post [siftrank: Use LLMs for Document Ranking](https://bishopfox.com/blog/siftrank-llms-document-ranking) for more background on this technique, and our talk [Patch Perfect: Harmonizing with LLMs to Find Security Vulns](https://www.youtube.com/watch?v=IBuL1zY69tY) to see how we've applied siftrank to offensive security problems.
+`siftrank` is an implementation of the **Sift**Rank document ranking algorithm that uses LLMs to efficiently find the items in any dataset that are most relevant to a given prompt:
+- **S**tochastic: Randomly samples the dataset into small batches.
+- **I**nflective: Looks for a natural inflection point in the scores that distinguishes particularly relevant items from the rest.
+- **F**ixed: Caps the maximum number of LLM calls so the computational complexity remains linear in the worst case.
+- **T**rial: Repeatedly compares batched items until the relevance scores stabilize.
+
+Use LLMs to rank anything. No fine-tuning. No domain-specific models. Just an off-the-shelf model and your ranking prompt. Typically runs in seconds and costs pennies.
 
 ## Getting started
 
@@ -79,7 +85,9 @@ siftrank \
   10  She opened the curtains to let in the morning light.
 ```
 
-#### JSON Support
+<details><summary>Advanced usage</summary>
+
+#### JSON support
 
 If the input file is a JSON document, it will be read as an array of objects and each object will be used for ranking.
 
@@ -141,17 +149,22 @@ siftrank \
 {"key":"a4ayc_80","value":"1","object":{"nums":[1,2,3]},"score":3,"exposure":1,"rank":3}
 ```
 
+</details>
+
 ## Back matter
+
+### Acknowledgements
+
+I released the prototype of this tool, Raink, while at Bishop Fox. See the original [presentation](https://www.youtube.com/watch?v=IBuL1zY69tY), [blog post](https://bishopfox.com/blog/raink-llms-document-ranking) and [CLI tool](https://github.com/bishopfox/raink).
 
 ### See also
 
+- [O(N) the Money: Scaling Vulnerability Research with LLMs](https://noperator.dev/posts/on-the-money/)
+- [Using LLMs to solve security problems](https://noperator.dev/posts/ai-for-security/)
 - [Hard problems that reduce to document ranking](https://noperator.dev/posts/document-ranking-for-complex-problems/)
 - [Commentary: Critical Thinking - Bug Bounty Podcast](https://youtu.be/qd08UBNpu7k?si=pMVEYtmKnyuJkL9B&t=1511)
 - [Discussion: Hacker News](https://news.ycombinator.com/item?id=43174910)
-- [Raink: Use LLMs for Document Ranking](https://bishopfox.com/blog/raink-llms-document-ranking)
-- [Patch Perfect: Harmonizing with LLMs to Find Security Vulns](https://www.youtube.com/watch?v=IBuL1zY69tY)
 - [Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting](https://arxiv.org/html/2306.17563v2)
-- [Introducing Rerank 3.5: Precise AI Search](https://cohere.com/blog/rerank-3pt5)
 
 ### To-do
 
@@ -162,6 +175,7 @@ siftrank \
 - [ ] factor LLM calls out into a separate package
 - [ ] run openai batch mode
 - [ ] report cost + token usage
+- [ ] add more examples, use cases
 
 <details><summary>Completed</summary>
 
