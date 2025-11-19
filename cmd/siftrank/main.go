@@ -41,8 +41,9 @@ var (
 	minTrials      int
 
 	// Execution params
-	dryRun bool
-	debug  bool
+	dryRun    bool
+	debug     bool
+	reasoning bool
 )
 
 var rootCmd = &cobra.Command{
@@ -97,6 +98,7 @@ func init() {
 	// Execution flags
 	rootCmd.Flags().BoolVar(&dryRun, "dry-run", false, "log API calls without making them")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "enable debug logging")
+	rootCmd.Flags().BoolVarP(&reasoning, "reasoning", "r", false, "collect and summarize reasoning for rankings (skips round 1)")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -138,6 +140,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Encoding:        encoding,
 		BatchTokens:     batchTokens,
 		DryRun:          dryRun,
+		Reasoning:       reasoning,
 		LogLevel:        logLevel,
 
 		EnableConvergence: !noConverge,

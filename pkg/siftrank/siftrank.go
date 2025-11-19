@@ -84,6 +84,7 @@ type Config struct {
 	Encoding        string           `json:"encoding"`
 	BatchTokens     int              `json:"batch_tokens"`
 	DryRun          bool             `json:"-"`
+	Reasoning       bool             `json:"reasoning"`
 	Logger          *slog.Logger     `json:"-"`
 	LogLevel        slog.Level       `json:"-"` // Defaults to 0 (slog.LevelInfo)
 
@@ -130,6 +131,13 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+type docStats struct {
+	ID                string
+	Value             string
+	Document          interface{}
+	reasoningSnippets []string // Collected reasoning from all batches/trials
+}
+
 type Ranker struct {
 	cfg              *Config
 	encoding         *tiktoken.Tiktoken
@@ -139,11 +147,12 @@ type Ranker struct {
 	semaphore        chan struct{}                 // Global concurrency limiter
 	elbowPositions   []int                         // Track elbow position after each trial
 	rankingOrders    [][]string                    // Track full ranking order per trial
-	mu               sync.Mutex                    // Protect elbowPositions, rankingOrders, converged, and comparedAgainst
+	mu               sync.Mutex                    // Protect elbowPositions, rankingOrders, converged, comparedAgainst, and allDocStats
 	converged        bool                          // Track if convergence already detected
 	elbowCutoff      int                           // Cutoff position for refinement
 	originalDocCount int                           // Track original dataset size for exposure calculation
 	comparedAgainst  map[string]map[string]bool    // Track which docs each was compared against (across ALL rounds/trials)
+	allDocStats      map[string]*docStats          // Track all documents across rounds (for reasoning collection)
 }
 
 func NewRanker(config *Config) (*Ranker, error) {
@@ -240,18 +249,42 @@ type rankedDocument struct {
 	Score    float64
 }
 
+type documentReasoning struct {
+	ID   string `json:"id" jsonschema_description:"Document ID"`
+	Text string `json:"text" jsonschema_description:"Brief explanation of qualities that make this document more or less relevant"`
+}
+
+// Used for parsing API responses (can handle both with and without reasoning)
 type rankedDocumentResponse struct {
+	Documents []string             `json:"docs"`
+	Reasoning []documentReasoning  `json:"reasoning,omitempty"`
+}
+
+// Used for schema generation in round 1 or when reasoning disabled
+type rankedDocumentResponseNoReasoning struct {
 	Documents []string `json:"docs" jsonschema_description:"List of ranked document IDs"`
 }
 
+// Used for schema generation in rounds 2+ when reasoning enabled
+type rankedDocumentResponseWithReasoning struct {
+	Documents []string             `json:"docs" jsonschema_description:"List of ranked document IDs"`
+	Reasoning []documentReasoning  `json:"reasoning" jsonschema_description:"Brief explanation of qualities for each document"`
+}
+
+type ReasoningProsCons struct {
+	Pros string `json:"pros"` // Qualities making item MORE relevant
+	Cons string `json:"cons"` // Qualities making item LESS relevant
+}
+
 type RankedDocument struct {
-	Key      string      `json:"key"`
-	Value    string      `json:"value"`
-	Document interface{} `json:"document"` // if loading from json file
-	Score    float64     `json:"score"`
-	Exposure float64     `json:"exposure"` // percentage of dataset compared against (0.0-1.0)
-	Rank     int         `json:"rank"`
-	Rounds   int         `json:"rounds"` // number of rounds participated in
+	Key       string              `json:"key"`
+	Value     string              `json:"value"`
+	Document  interface{}         `json:"document"` // if loading from json file
+	Score     float64             `json:"score"`
+	Exposure  float64             `json:"exposure"`  // percentage of dataset compared against (0.0-1.0)
+	Rank      int                 `json:"rank"`
+	Rounds    int                 `json:"rounds"`    // number of rounds participated in
+	Reasoning *ReasoningProsCons  `json:"reasoning,omitempty"` // Only if reasoning enabled
 }
 
 func generateSchema[T any]() interface{} {
@@ -313,14 +346,29 @@ func createIDMappings(documents []document, rng *rand.Rand, logger *slog.Logger)
 
 // translateIDsInResponse translates temporary IDs back to original IDs in the response
 func translateIDsInResponse(response *rankedDocumentResponse, tempToOriginal map[string]string) {
+	// Translate document IDs
 	for i, id := range response.Documents {
 		if originalID, exists := tempToOriginal[id]; exists {
 			response.Documents[i] = originalID
 		}
 	}
+	// Translate IDs in reasoning array
+	for i := range response.Reasoning {
+		if originalID, exists := tempToOriginal[response.Reasoning[i].ID]; exists {
+			response.Reasoning[i].ID = originalID
+		}
+	}
 }
 
-var rankedDocumentResponseSchema = generateSchema[rankedDocumentResponse]()
+// getResponseSchema returns the appropriate schema based on whether reasoning is enabled
+func (r *Ranker) getResponseSchema() interface{} {
+	// Use reasoning schema when reasoning is enabled AND we're past round 1
+	if r.cfg.Reasoning && r.round > 1 {
+		return generateSchema[rankedDocumentResponseWithReasoning]()
+	}
+	// For round 1 or when reasoning is disabled, use schema without reasoning field
+	return generateSchema[rankedDocumentResponseNoReasoning]()
+}
 
 // ShortDeterministicID generates a deterministic ID of specified length from input string.
 // It uses SHA-256 hash and Base64 encoding, keeping only alphanumeric characters.
@@ -363,7 +411,95 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 	// Initialize global comparison tracking for exposure calculation
 	r.comparedAgainst = make(map[string]map[string]bool)
 
+	// Initialize reasoning tracking if enabled
+	if r.cfg.Reasoning {
+		r.allDocStats = make(map[string]*docStats)
+		for _, doc := range documents {
+			r.allDocStats[doc.ID] = &docStats{
+				ID:                doc.ID,
+				Value:             doc.Value,
+				Document:          doc.Document,
+				reasoningSnippets: []string{},
+			}
+		}
+	}
+
 	results := r.rank(documents, 1)
+
+	// Summarize reasoning if enabled
+	if r.cfg.Reasoning {
+		r.cfg.Logger.Info("Summarizing reasoning for all documents", "count", len(results))
+
+		// Parallelize summarization using goroutines
+		type summaryJob struct {
+			index    int
+			key      string
+			value    string
+			snippets []string
+		}
+
+		type summaryResult struct {
+			index   int
+			summary *ReasoningProsCons
+			err     error
+		}
+
+		jobs := make(chan summaryJob, len(results))
+		resultsChan := make(chan summaryResult, len(results))
+
+		// Start worker pool (use r.cfg.Concurrency workers)
+		numWorkers := r.cfg.Concurrency
+		var wg sync.WaitGroup
+		for w := 0; w < numWorkers; w++ {
+			wg.Add(1)
+			go func(workerID int) {
+				defer wg.Done()
+				for job := range jobs {
+					r.cfg.Logger.Info("Summarizing reasoning",
+						"document", job.index+1,
+						"of", len(results),
+						"snippets", len(job.snippets),
+						"worker", workerID)
+					summary, err := r.summarizeReasoning(job.key, job.value, job.snippets)
+					resultsChan <- summaryResult{index: job.index, summary: summary, err: err}
+				}
+			}(w)
+		}
+
+		// Queue all jobs (only for documents with collected reasoning)
+		itemsToSummarize := 0
+		for i := range results {
+			if stats, exists := r.allDocStats[results[i].Key]; exists && len(stats.reasoningSnippets) > 0 {
+				jobs <- summaryJob{
+					index:    i,
+					key:      results[i].Key,
+					value:    results[i].Value,
+					snippets: stats.reasoningSnippets,
+				}
+				itemsToSummarize++
+			} else {
+				// No reasoning collected (e.g., eliminated in round 1)
+				results[i].Reasoning = nil
+			}
+		}
+		close(jobs)
+
+		// Wait for workers to complete and collect results
+		go func() {
+			wg.Wait()
+			close(resultsChan)
+		}()
+
+		// Collect results
+		for result := range resultsChan {
+			if result.err != nil {
+				r.cfg.Logger.Warn("Failed to summarize reasoning", "document", result.index, "error", result.err)
+				results[result.index].Reasoning = nil
+			} else {
+				results[result.index].Reasoning = result.summary
+			}
+		}
+	}
 
 	// Calculate final exposure percentages across all rounds/trials
 	for i := range results {
@@ -566,6 +702,103 @@ func (r *Ranker) rank(documents []document, round int) []RankedDocument {
 	finalResults := append(refinedTopPortion, bottomPortion...)
 
 	return finalResults
+}
+
+func (r *Ranker) summarizeReasoning(docID string, docValue string, snippets []string) (*ReasoningProsCons, error) {
+	// Skip if no snippets or dry run mode
+	if len(snippets) == 0 || r.cfg.DryRun {
+		return nil, nil
+	}
+
+	// Build prompt with numbered snippets
+	snippetsList := ""
+	for i, snippet := range snippets {
+		snippetsList += fmt.Sprintf("%d. %s\n", i+1, snippet)
+	}
+
+	prompt := fmt.Sprintf(`Below are %d reasoning snippets from different comparisons of the document "%s". These snippets come from various trials where this document was compared against different sets of documents.
+
+Your task: Analyze these snippets and extract two things:
+1. PROS: Qualities of this document that make it RELEVANT to the user's ranking criteria/prompt. Focus strictly on relevance, not whether these qualities are inherently "good" or "bad". (2-4 sentences)
+2. CONS: Qualities of this document that make it NOT RELEVANT to the user's ranking criteria/prompt. Focus strictly on lack of relevance, not whether these qualities are inherently "good" or "bad". (2-4 sentences)
+
+CRITICAL: Do not confuse "positive/negative qualities" with "relevant/not relevant". For example, if the prompt asks to "find security vulnerabilities", then vulnerabilities are RELEVANT (pros) even though they are bad, and secure code practices are NOT RELEVANT (cons) even though they are good.
+
+Either pros or cons can be empty if there's nothing to say. For top-performing documents, cons might be empty. For lower-performing documents, pros might be minimal.
+
+Critical style rules:
+- DO NOT start sentences with "The document emphasizes", "The document focuses on", "This document", "It emphasizes", "It focuses", "It highlights"
+- DO NOT end with "Overall," or "Overall, it" - just stop when you're done
+- DO NOT use "While it", "Although it", "However," at the start of every other sentence
+- DO NOT use formal academic language - write like you're taking quick notes
+- DO NOT use absolute position language like "ranked highest", "ranked lowest", "ranked second"
+- DO vary sentence structure - mix short and longer sentences, start sentences differently
+- Just capture what's notable: what does it reference? what concepts appear? what stands out?
+
+Write naturally and directly. Imagine explaining to a colleague in conversation.
+
+Reasoning snippets:
+%s
+
+Provide your response in JSON format with two keys: 'pros' and 'cons'. Each value should be a string (or empty string if nothing to say).
+Example: {"pros": "Strong connection to X. References Y explicitly.", "cons": "Lacks specificity compared to documents with Z."}`, len(snippets), docValue, snippetsList)
+
+	// Set up OpenAI client
+	customTransport := &customTransport{Transport: http.DefaultTransport}
+	customClient := &http.Client{Transport: customTransport}
+
+	clientOptions := []option.RequestOption{
+		option.WithAPIKey(r.cfg.OpenAIKey),
+		option.WithHTTPClient(customClient),
+		option.WithMaxRetries(3),
+	}
+
+	if r.cfg.OpenAIAPIURL != "" {
+		baseURL := r.cfg.OpenAIAPIURL
+		if !strings.HasSuffix(baseURL, "/") {
+			baseURL += "/"
+		}
+		clientOptions = append(clientOptions, option.WithBaseURL(baseURL))
+	}
+
+	client := openai.NewClient(clientOptions...)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Generate schema for ReasoningProsCons
+	schema := generateSchema[ReasoningProsCons]()
+
+	// Call OpenAI API
+	completion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.UserMessage(prompt),
+		},
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+					Name:        "reasoning_pros_cons",
+					Description: openai.String("Pros and cons analysis of document relevance"),
+					Schema:      schema,
+					Strict:      openai.Bool(true),
+				},
+			},
+		},
+		Model: r.cfg.OpenAIModel,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("OpenAI API call failed: %w", err)
+	}
+
+	// Parse response
+	var result ReasoningProsCons
+	if err := json.Unmarshal([]byte(completion.Choices[0].Message.Content), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse reasoning response: %w", err)
+	}
+
+	return &result, nil
 }
 
 func (r *Ranker) logFromApiCall(trialNum, batchNum int, message string, args ...interface{}) {
@@ -1206,6 +1439,23 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 			}
 		}
 
+		// Add reasoning instructions when enabled and past round 1
+		if r.cfg.Reasoning && r.round > 1 {
+			prompt += "\n\nIMPORTANT: In addition to ranking, you must also provide reasoning. For each document, write a brief 1-2 sentence explanation focusing on the specific qualities that make it MORE or LESS relevant to the ranking criteria/prompt. Do not confuse 'good qualities' with 'relevant to prompt' - for example, if ranking by 'find vulnerabilities', vulnerabilities are relevant even though they are bad.\n\n"
+			prompt += "Your response must include both:\n"
+			prompt += "1. A 'docs' array with the ranked IDs\n"
+			prompt += "2. A 'reasoning' array with an entry for each document\n\n"
+			prompt += "Example format:\n"
+			prompt += "{\n"
+			prompt += "  \"docs\": [\"id1\", \"id2\", \"id3\"],\n"
+			prompt += "  \"reasoning\": [\n"
+			prompt += "    {\"id\": \"id1\", \"text\": \"This document ranked highest because...\"},\n"
+			prompt += "    {\"id\": \"id2\", \"text\": \"This document ranked second because...\"},\n"
+			prompt += "    {\"id\": \"id3\", \"text\": \"This document ranked lowest because...\"}\n"
+			prompt += "  ]\n"
+			prompt += "}\n"
+		}
+
 		var rankedResponse rankedDocumentResponse
 		rankedResponse, err = r.callOpenAI(ctx, prompt, trialNumber, batchNumber, inputIDs)
 		if err != nil {
@@ -1254,6 +1504,17 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 					break
 				}
 			}
+		}
+
+		// Store reasoning snippets if collected
+		if r.cfg.Reasoning && r.round > 1 && len(rankedResponse.Reasoning) > 0 {
+			r.mu.Lock()
+			for _, docReasoning := range rankedResponse.Reasoning {
+				if stats, exists := r.allDocStats[docReasoning.ID]; exists {
+					stats.reasoningSnippets = append(stats.reasoningSnippets, docReasoning.Text)
+				}
+			}
+			r.mu.Unlock()
 		}
 
 		return rankedDocs, nil
@@ -1372,7 +1633,7 @@ func (r *Ranker) callOpenAI(ctx context.Context, prompt string, trialNum int, ba
 					JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
 						Name:        "ranked_document_response",
 						Description: openai.String("List of ranked document IDs"),
-						Schema:      rankedDocumentResponseSchema,
+						Schema:      r.getResponseSchema(),
 						Strict:      openai.Bool(true),
 					},
 				},
