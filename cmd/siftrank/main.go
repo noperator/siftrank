@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/noperator/raink/pkg/raink"
+	"github.com/noperator/siftrank/pkg/siftrank"
 	"github.com/openai/openai-go"
 )
 
@@ -45,7 +45,7 @@ func main() {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: logLevel,
-	})).With("component", "raink-cli")
+	})).With("component", "siftrank-cli")
 
 	// This "threshold" is a way to add some padding to our estimation of
 	// average token usage per batch. We're effectively leaving 5% of
@@ -73,7 +73,7 @@ func main() {
 		userPrompt = string(content)
 	}
 
-	config := &raink.Config{
+	config := &siftrank.Config{
 		InitialPrompt:   userPrompt,
 		BatchSize:       *batchSize,
 		NumTrials:       *numTrials,
@@ -94,7 +94,7 @@ func main() {
 		MinTrials:         *minTrials,
 	}
 
-	ranker, err := raink.NewRanker(config)
+	ranker, err := siftrank.NewRanker(config)
 	if err != nil {
 		logger.Error("failed to create ranker", "error", err)
 		os.Exit(1)

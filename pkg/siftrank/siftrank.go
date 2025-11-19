@@ -1,4 +1,4 @@
-package raink
+package siftrank
 
 import (
 	"bufio"
@@ -157,7 +157,7 @@ func NewRanker(config *Config) (*Ranker, error) {
 		config.Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:     config.LogLevel,
 			AddSource: false,
-		})).With("component", "raink")
+		})).With("component", "siftrank")
 	}
 
 	encoding, err := tiktoken.GetEncoding(config.Encoding)
@@ -381,7 +381,7 @@ func (r *Ranker) loadDocumentsFromFile(filePath string, templateData string, for
 			}
 			templateData = string(content)
 		}
-		if tmpl, err = template.New("raink-item-template").Parse(templateData); err != nil {
+		if tmpl, err = template.New("siftrank-item-template").Parse(templateData); err != nil {
 			return nil, fmt.Errorf("failed to parse template: %w", err)
 		}
 	}

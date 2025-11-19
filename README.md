@@ -15,14 +15,14 @@ There's power in AI in that you can "throw a problem at it" and get some result,
 - output contraints: sometimes doesn't return all the data you asked it to review
 - subjectivity in scoring: has a really hard time assigning a numeric score to an individual item
 
-We built raink to circumvent those issues and solve general ranking problems that are otherwise difficult for LLMs to process. See our blog post [raink: Use LLMs for Document Ranking](https://bishopfox.com/blog/raink-llms-document-ranking) for more background on this technique, and our talk [Patch Perfect: Harmonizing with LLMs to Find Security Vulns](https://www.youtube.com/watch?v=IBuL1zY69tY) to see how we've applied raink to offensive security problems.
+We built siftrank to circumvent those issues and solve general ranking problems that are otherwise difficult for LLMs to process. See our blog post [siftrank: Use LLMs for Document Ranking](https://bishopfox.com/blog/siftrank-llms-document-ranking) for more background on this technique, and our talk [Patch Perfect: Harmonizing with LLMs to Find Security Vulns](https://www.youtube.com/watch?v=IBuL1zY69tY) to see how we've applied siftrank to offensive security problems.
 
 ## Getting started
 
 ### Install
 
 ```
-go install github.com/noperator/raink/cmd/raink@latest
+go install github.com/noperator/siftrank/cmd/siftrank@latest
 ```
 
 ### Configure
@@ -32,8 +32,8 @@ Set your `OPENAI_API_KEY` environment variable.
 ### Usage
 
 ```
-raink -h
-Usage of raink:
+siftrank -h
+Usage of siftrank:
   -dry-run
     	Enable dry run mode (log API calls without making them)
   -encoding string
@@ -62,10 +62,10 @@ Usage of raink:
     	Template for each object in the input file (prefix with @ to use a file) (default "{{.Data}}")
 ```
 
-Compares 100 [sentences](https://github.com/noperator/raink/blob/main/testdata/sentences.txt) in under 2 min.
+Compares 100 [sentences](https://github.com/noperator/siftrank/blob/main/testdata/sentences.txt) in under 2 min.
 
 ```
-raink \
+siftrank \
     -f testdata/sentences.txt \
     -r 10 \
     -s 10 \
@@ -135,7 +135,7 @@ seq 9 |
 [{"nums":[1,2,3]},{"nums":[4,5,6]},{"nums":[7,8,9]}]
 
 # Use template to extract the first element of the nums array in each input object.
-raink \
+siftrank \
 	-f input.json \
 	-template '{{ index .nums 0 }}' \
 	-p 'Which is biggest?' \

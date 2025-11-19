@@ -1,4 +1,4 @@
-module github.com/noperator/raink
+module github.com/noperator/siftrank
 
 go 1.23
 

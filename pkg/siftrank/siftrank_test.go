@@ -1,4 +1,4 @@
-package raink
+package siftrank
 
 import (
 	"os"
