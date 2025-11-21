@@ -45,6 +45,7 @@ var (
 	dryRun    bool
 	debug     bool
 	relevance bool
+	traceFile string
 )
 
 var rootCmd = &cobra.Command{
@@ -101,6 +102,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&dryRun, "dry-run", false, "log API calls without making them")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "enable debug logging")
 	rootCmd.Flags().BoolVarP(&relevance, "relevance", "r", false, "post-process each item by providing relevance justification (skips round 1)")
+	rootCmd.Flags().StringVar(&traceFile, "trace", "", "trace file path for streaming trial execution state (JSON Lines format)")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -142,6 +144,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Encoding:        encoding,
 		BatchTokens:     batchTokens,
 		DryRun:          dryRun,
+		TracePath:       traceFile,
 		Relevance:       relevance,
 		Effort:          effort,
 		LogLevel:        logLevel,

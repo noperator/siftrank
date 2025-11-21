@@ -84,6 +84,7 @@ type Config struct {
 	Encoding        string           `json:"encoding"`
 	BatchTokens     int              `json:"batch_tokens"`
 	DryRun          bool             `json:"-"`
+	TracePath       string           `json:"-"`
 	Relevance       bool             `json:"relevance"`
 	Effort          string           `json:"effort"`
 	Logger          *slog.Logger     `json:"-"`
@@ -166,6 +167,7 @@ type Ranker struct {
 	originalDocCount int                           // Track original dataset size for exposure calculation
 	comparedAgainst  map[string]map[string]bool    // Track which docs each was compared against (across ALL rounds/trials)
 	allDocStats      map[string]*docStats          // Track all documents across rounds (for relevance collection)
+	traceFile        *os.File                      // Keep file open across all rounds
 
 	// Token and call tracking (accumulate across all rounds)
 	totalUsage   Usage
@@ -307,6 +309,24 @@ type RankedDocument struct {
 	Relevance *RelevanceProsCons  `json:"relevance,omitempty"` // Only if relevance enabled
 }
 
+type traceDocument struct {
+	ID    string  `json:"id"`
+	Value string  `json:"value"`
+	Score float64 `json:"score"`
+}
+
+type traceLine struct {
+	Round              int              `json:"round"`
+	Trial              int              `json:"trial"`
+	TrialsCompleted    int              `json:"trials_completed"`
+	TrialsRemaining    int              `json:"trials_remaining"`
+	TotalInputTokens   int              `json:"total_input_tokens"`
+	TotalOutputTokens  int              `json:"total_output_tokens"`
+	ElbowPosition      *int             `json:"elbow_position,omitempty"`      // nil if not detected
+	StableTrialsCount  int              `json:"stable_trials_count,omitempty"` // only if convergence enabled
+	Rankings           []traceDocument  `json:"rankings"`
+}
+
 func generateSchema[T any]() interface{} {
 	reflector := jsonschema.Reflector{
 		AllowAdditionalProperties: false,
@@ -426,6 +446,20 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 
 	if err := r.adjustBatchSize(documents); err != nil {
 		return nil, err
+	}
+
+	// Open trace file if specified
+	if r.cfg.TracePath != "" {
+		traceFile, err := os.Create(r.cfg.TracePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create trace file: %w", err)
+		}
+		r.traceFile = traceFile
+		defer func() {
+			if err := r.traceFile.Close(); err != nil {
+				r.cfg.Logger.Warn("Failed to close trace file", "error", err)
+			}
+		}()
 	}
 
 	// Initialize global comparison tracking for exposure calculation
@@ -836,6 +870,97 @@ Example: {"pros": "Strong connection to X. References Y explicitly.", "cons": "L
 	return &result, nil
 }
 
+func (r *Ranker) writeTraceLine(trialNum int, trialsCompleted int, scores map[string][]float64, documents []document) error {
+	if r.traceFile == nil {
+		return nil // Tracing not enabled
+	}
+
+	// Calculate current rankings from accumulated scores
+	var rankings []traceDocument
+	for id, scoreList := range scores {
+		var sum float64
+		for _, score := range scoreList {
+			sum += score
+		}
+		avgScore := sum / float64(len(scoreList))
+
+		// Find the document value
+		var value string
+		for _, doc := range documents {
+			if doc.ID == id {
+				value = doc.Value
+				break
+			}
+		}
+
+		rankings = append(rankings, traceDocument{
+			ID:    id,
+			Value: value,
+			Score: avgScore,
+		})
+	}
+
+	// Sort by score (lower is better)
+	sort.Slice(rankings, func(i, j int) bool {
+		return rankings[i].Score < rankings[j].Score
+	})
+
+	// Build trace line
+	trace := traceLine{
+		Round:             r.round,
+		Trial:             trialNum,
+		TrialsCompleted:   trialsCompleted,
+		TrialsRemaining:   r.cfg.NumTrials - trialsCompleted,
+		TotalInputTokens:  r.totalUsage.InputTokens,
+		TotalOutputTokens: r.totalUsage.OutputTokens,
+		Rankings:          rankings,
+	}
+
+	// Add convergence info if enabled
+	if r.cfg.EnableConvergence {
+		r.mu.Lock()
+		if len(r.elbowPositions) > 0 {
+			lastElbow := r.elbowPositions[len(r.elbowPositions)-1]
+			if lastElbow >= 0 {
+				trace.ElbowPosition = &lastElbow
+			}
+
+			// Calculate stability count
+			if stable, _ := r.isElbowStable(len(rankings)); stable {
+				trace.StableTrialsCount = r.cfg.StableTrials
+			} else {
+				// Count how many recent positions are within tolerance
+				n := len(r.elbowPositions)
+				if n >= 2 {
+					recentCount := r.cfg.StableTrials
+					if recentCount > n {
+						recentCount = n
+					}
+					trace.StableTrialsCount = recentCount - 1 // Current one not stable yet
+				}
+			}
+		}
+		r.mu.Unlock()
+	}
+
+	// Write JSON line
+	data, err := json.Marshal(trace)
+	if err != nil {
+		return fmt.Errorf("failed to marshal trace line: %w", err)
+	}
+
+	if _, err := r.traceFile.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("failed to write trace line: %w", err)
+	}
+
+	// Flush to disk immediately
+	if err := r.traceFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync trace file: %w", err)
+	}
+
+	return nil
+}
+
 func (r *Ranker) logFromApiCall(trialNum, batchNum int, message string, args ...interface{}) {
 	formattedMessage := fmt.Sprintf(message, args...)
 	r.cfg.Logger.Debug(formattedMessage, "round", r.round, "trial", trialNum, "total_trials", r.cfg.NumTrials, "batch", batchNum, "total_batches", r.numBatches)
@@ -1057,6 +1182,7 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 		if completedBatches[result.trialNumber] == r.numBatches {
 			// Mark this trial as fully completed
 			completedTrials[result.trialNumber] = true
+			completedTrialsCount := len(completedTrials)
 
 			r.cfg.Logger.Info("Trial completed",
 				"round", r.round,
@@ -1065,6 +1191,11 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 				"num_calls", stats.numCalls,
 				"input_tokens", stats.usage.InputTokens,
 				"output_tokens", stats.usage.OutputTokens)
+
+			// Write trace line
+			if err := r.writeTraceLine(result.trialNumber, completedTrialsCount, scores, documents); err != nil {
+				r.cfg.Logger.Error("Failed to write trace line", "error", err)
+			}
 
 			// Check for convergence
 			if r.hasConverged(scores, result.trialNumber) {
