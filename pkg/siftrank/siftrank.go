@@ -84,7 +84,8 @@ type Config struct {
 	Encoding        string           `json:"encoding"`
 	BatchTokens     int              `json:"batch_tokens"`
 	DryRun          bool             `json:"-"`
-	Reasoning       bool             `json:"reasoning"`
+	Relevance       bool             `json:"relevance"`
+	Effort          string           `json:"effort"`
 	Logger          *slog.Logger     `json:"-"`
 	LogLevel        slog.Level       `json:"-"` // Defaults to 0 (slog.LevelInfo)
 
@@ -135,7 +136,7 @@ type docStats struct {
 	ID                string
 	Value             string
 	Document          interface{}
-	reasoningSnippets []string // Collected reasoning from all batches/trials
+	relevanceSnippets []string // Collected relevance from all batches/trials
 }
 
 // Usage tracks token consumption for cost analysis
@@ -164,7 +165,7 @@ type Ranker struct {
 	elbowCutoff      int                           // Cutoff position for refinement
 	originalDocCount int                           // Track original dataset size for exposure calculation
 	comparedAgainst  map[string]map[string]bool    // Track which docs each was compared against (across ALL rounds/trials)
-	allDocStats      map[string]*docStats          // Track all documents across rounds (for reasoning collection)
+	allDocStats      map[string]*docStats          // Track all documents across rounds (for relevance collection)
 
 	// Token and call tracking (accumulate across all rounds)
 	totalUsage   Usage
@@ -268,29 +269,29 @@ type rankedDocument struct {
 	Score    float64
 }
 
-type documentReasoning struct {
+type documentRelevance struct {
 	ID   string `json:"id" jsonschema_description:"Document ID"`
 	Text string `json:"text" jsonschema_description:"Brief explanation of qualities that make this document more or less relevant"`
 }
 
-// Used for parsing API responses (can handle both with and without reasoning)
+// Used for parsing API responses (can handle both with and without relevance)
 type rankedDocumentResponse struct {
 	Documents []string             `json:"docs"`
-	Reasoning []documentReasoning  `json:"reasoning,omitempty"`
+	Relevance []documentRelevance  `json:"relevance,omitempty"`
 }
 
-// Used for schema generation in round 1 or when reasoning disabled
-type rankedDocumentResponseNoReasoning struct {
+// Used for schema generation in round 1 or when relevance disabled
+type rankedDocumentResponseNoRelevance struct {
 	Documents []string `json:"docs" jsonschema_description:"List of ranked document IDs"`
 }
 
-// Used for schema generation in rounds 2+ when reasoning enabled
-type rankedDocumentResponseWithReasoning struct {
+// Used for schema generation in rounds 2+ when relevance enabled
+type rankedDocumentResponseWithRelevance struct {
 	Documents []string             `json:"docs" jsonschema_description:"List of ranked document IDs"`
-	Reasoning []documentReasoning  `json:"reasoning" jsonschema_description:"Brief explanation of qualities for each document"`
+	Relevance []documentRelevance  `json:"relevance" jsonschema_description:"Brief explanation of qualities for each document"`
 }
 
-type ReasoningProsCons struct {
+type RelevanceProsCons struct {
 	Pros string `json:"pros"` // Qualities making item MORE relevant
 	Cons string `json:"cons"` // Qualities making item LESS relevant
 }
@@ -303,7 +304,7 @@ type RankedDocument struct {
 	Exposure  float64             `json:"exposure"`  // percentage of dataset compared against (0.0-1.0)
 	Rank      int                 `json:"rank"`
 	Rounds    int                 `json:"rounds"`    // number of rounds participated in
-	Reasoning *ReasoningProsCons  `json:"reasoning,omitempty"` // Only if reasoning enabled
+	Relevance *RelevanceProsCons  `json:"relevance,omitempty"` // Only if relevance enabled
 }
 
 func generateSchema[T any]() interface{} {
@@ -371,22 +372,22 @@ func translateIDsInResponse(response *rankedDocumentResponse, tempToOriginal map
 			response.Documents[i] = originalID
 		}
 	}
-	// Translate IDs in reasoning array
-	for i := range response.Reasoning {
-		if originalID, exists := tempToOriginal[response.Reasoning[i].ID]; exists {
-			response.Reasoning[i].ID = originalID
+	// Translate IDs in relevance array
+	for i := range response.Relevance {
+		if originalID, exists := tempToOriginal[response.Relevance[i].ID]; exists {
+			response.Relevance[i].ID = originalID
 		}
 	}
 }
 
-// getResponseSchema returns the appropriate schema based on whether reasoning is enabled
+// getResponseSchema returns the appropriate schema based on whether relevance is enabled
 func (r *Ranker) getResponseSchema() interface{} {
-	// Use reasoning schema when reasoning is enabled AND we're past round 1
-	if r.cfg.Reasoning && r.round > 1 {
-		return generateSchema[rankedDocumentResponseWithReasoning]()
+	// Use relevance schema when relevance is enabled AND we're past round 1
+	if r.cfg.Relevance && r.round > 1 {
+		return generateSchema[rankedDocumentResponseWithRelevance]()
 	}
-	// For round 1 or when reasoning is disabled, use schema without reasoning field
-	return generateSchema[rankedDocumentResponseNoReasoning]()
+	// For round 1 or when relevance is disabled, use schema without relevance field
+	return generateSchema[rankedDocumentResponseNoRelevance]()
 }
 
 // ShortDeterministicID generates a deterministic ID of specified length from input string.
@@ -430,24 +431,24 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 	// Initialize global comparison tracking for exposure calculation
 	r.comparedAgainst = make(map[string]map[string]bool)
 
-	// Initialize reasoning tracking if enabled
-	if r.cfg.Reasoning {
+	// Initialize relevance tracking if enabled
+	if r.cfg.Relevance {
 		r.allDocStats = make(map[string]*docStats)
 		for _, doc := range documents {
 			r.allDocStats[doc.ID] = &docStats{
 				ID:                doc.ID,
 				Value:             doc.Value,
 				Document:          doc.Document,
-				reasoningSnippets: []string{},
+				relevanceSnippets: []string{},
 			}
 		}
 	}
 
 	results := r.rank(documents, 1)
 
-	// Summarize reasoning if enabled
-	if r.cfg.Reasoning {
-		r.cfg.Logger.Info("Summarizing reasoning for all documents", "count", len(results))
+	// Summarize relevance if enabled
+	if r.cfg.Relevance {
+		r.cfg.Logger.Info("Summarizing relevance for all documents", "count", len(results))
 
 		// Parallelize summarization using goroutines
 		type summaryJob struct {
@@ -459,7 +460,7 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 
 		type summaryResult struct {
 			index   int
-			summary *ReasoningProsCons
+			summary *RelevanceProsCons
 			err     error
 		}
 
@@ -474,31 +475,31 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 			go func(workerID int) {
 				defer wg.Done()
 				for job := range jobs {
-					r.cfg.Logger.Info("Summarizing reasoning",
+					r.cfg.Logger.Info("Summarizing relevance",
 						"document", job.index+1,
 						"of", len(results),
 						"snippets", len(job.snippets),
 						"worker", workerID)
-					summary, err := r.summarizeReasoning(job.key, job.value, job.snippets)
+					summary, err := r.summarizeRelevance(job.key, job.value, job.snippets)
 					resultsChan <- summaryResult{index: job.index, summary: summary, err: err}
 				}
 			}(w)
 		}
 
-		// Queue all jobs (only for documents with collected reasoning)
+		// Queue all jobs (only for documents with collected relevance)
 		itemsToSummarize := 0
 		for i := range results {
-			if stats, exists := r.allDocStats[results[i].Key]; exists && len(stats.reasoningSnippets) > 0 {
+			if stats, exists := r.allDocStats[results[i].Key]; exists && len(stats.relevanceSnippets) > 0 {
 				jobs <- summaryJob{
 					index:    i,
 					key:      results[i].Key,
 					value:    results[i].Value,
-					snippets: stats.reasoningSnippets,
+					snippets: stats.relevanceSnippets,
 				}
 				itemsToSummarize++
 			} else {
-				// No reasoning collected (e.g., eliminated in round 1)
-				results[i].Reasoning = nil
+				// No relevance collected (e.g., eliminated in round 1)
+				results[i].Relevance = nil
 			}
 		}
 		close(jobs)
@@ -512,10 +513,10 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 		// Collect results
 		for result := range resultsChan {
 			if result.err != nil {
-				r.cfg.Logger.Warn("Failed to summarize reasoning", "document", result.index, "error", result.err)
-				results[result.index].Reasoning = nil
+				r.cfg.Logger.Warn("Failed to summarize relevance", "document", result.index, "error", result.err)
+				results[result.index].Relevance = nil
 			} else {
-				results[result.index].Reasoning = result.summary
+				results[result.index].Relevance = result.summary
 			}
 		}
 	}
@@ -732,7 +733,7 @@ func (r *Ranker) rank(documents []document, round int) []RankedDocument {
 	return finalResults
 }
 
-func (r *Ranker) summarizeReasoning(docID string, docValue string, snippets []string) (*ReasoningProsCons, error) {
+func (r *Ranker) summarizeRelevance(docID string, docValue string, snippets []string) (*RelevanceProsCons, error) {
 	// Skip if no snippets or dry run mode
 	if len(snippets) == 0 || r.cfg.DryRun {
 		return nil, nil
@@ -744,7 +745,7 @@ func (r *Ranker) summarizeReasoning(docID string, docValue string, snippets []st
 		snippetsList += fmt.Sprintf("%d. %s\n", i+1, snippet)
 	}
 
-	prompt := fmt.Sprintf(`Below are %d reasoning snippets from different comparisons of the document "%s". These snippets come from various trials where this document was compared against different sets of documents.
+	prompt := fmt.Sprintf(`Below are %d relevance snippets from different comparisons of the document "%s". These snippets come from various trials where this document was compared against different sets of documents.
 
 Your task: Analyze these snippets and extract two things:
 1. PROS: Qualities of this document that make it RELEVANT to the user's ranking criteria/prompt. Focus strictly on relevance, not whether these qualities are inherently "good" or "bad". (2-4 sentences)
@@ -765,7 +766,7 @@ Critical style rules:
 
 Write naturally and directly. Imagine explaining to a colleague in conversation.
 
-Reasoning snippets:
+Relevance snippets:
 %s
 
 Provide your response in JSON format with two keys: 'pros' and 'cons'. Each value should be a string (or empty string if nothing to say).
@@ -795,18 +796,18 @@ Example: {"pros": "Strong connection to X. References Y explicitly.", "cons": "L
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Generate schema for ReasoningProsCons
-	schema := generateSchema[ReasoningProsCons]()
+	// Generate schema for RelevanceProsCons
+	schema := generateSchema[RelevanceProsCons]()
 
 	// Call OpenAI API
-	completion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+	params := openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
 		},
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
 				JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
-					Name:        "reasoning_pros_cons",
+					Name:        "relevance_pros_cons",
 					Description: openai.String("Pros and cons analysis of document relevance"),
 					Schema:      schema,
 					Strict:      openai.Bool(true),
@@ -814,16 +815,22 @@ Example: {"pros": "Strong connection to X. References Y explicitly.", "cons": "L
 			},
 		},
 		Model: r.cfg.OpenAIModel,
-	})
+	}
+
+	if r.cfg.Effort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(r.cfg.Effort)
+	}
+
+	completion, err := client.Chat.Completions.New(ctx, params)
 
 	if err != nil {
 		return nil, fmt.Errorf("OpenAI API call failed: %w", err)
 	}
 
 	// Parse response
-	var result ReasoningProsCons
+	var result RelevanceProsCons
 	if err := json.Unmarshal([]byte(completion.Choices[0].Message.Content), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse reasoning response: %w", err)
+		return nil, fmt.Errorf("failed to parse relevance response: %w", err)
 	}
 
 	return &result, nil
@@ -1539,16 +1546,16 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 			}
 		}
 
-		// Add reasoning instructions when enabled and past round 1
-		if r.cfg.Reasoning && r.round > 1 {
-			prompt += "\n\nIMPORTANT: In addition to ranking, you must also provide reasoning. For each document, write a brief 1-2 sentence explanation focusing on the specific qualities that make it MORE or LESS relevant to the ranking criteria/prompt. Do not confuse 'good qualities' with 'relevant to prompt' - for example, if ranking by 'find vulnerabilities', vulnerabilities are relevant even though they are bad.\n\n"
+		// Add relevance instructions when enabled and past round 1
+		if r.cfg.Relevance && r.round > 1 {
+			prompt += "\n\nIMPORTANT: In addition to ranking, you must also provide relevance explanations. For each document, write a brief 1-2 sentence explanation focusing on the specific qualities that make it MORE or LESS relevant to the ranking criteria/prompt. Do not confuse 'good qualities' with 'relevant to prompt' - for example, if ranking by 'find vulnerabilities', vulnerabilities are relevant even though they are bad.\n\n"
 			prompt += "Your response must include both:\n"
 			prompt += "1. A 'docs' array with the ranked IDs\n"
-			prompt += "2. A 'reasoning' array with an entry for each document\n\n"
+			prompt += "2. A 'relevance' array with an entry for each document\n\n"
 			prompt += "Example format:\n"
 			prompt += "{\n"
 			prompt += "  \"docs\": [\"id1\", \"id2\", \"id3\"],\n"
-			prompt += "  \"reasoning\": [\n"
+			prompt += "  \"relevance\": [\n"
 			prompt += "    {\"id\": \"id1\", \"text\": \"This document ranked highest because...\"},\n"
 			prompt += "    {\"id\": \"id2\", \"text\": \"This document ranked second because...\"},\n"
 			prompt += "    {\"id\": \"id3\", \"text\": \"This document ranked lowest because...\"}\n"
@@ -1613,12 +1620,12 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 			}
 		}
 
-		// Store reasoning snippets if collected
-		if r.cfg.Reasoning && r.round > 1 && len(rankedResponse.Reasoning) > 0 {
+		// Store relevance snippets if collected
+		if r.cfg.Relevance && r.round > 1 && len(rankedResponse.Relevance) > 0 {
 			r.mu.Lock()
-			for _, docReasoning := range rankedResponse.Reasoning {
-				if stats, exists := r.allDocStats[docReasoning.ID]; exists {
-					stats.reasoningSnippets = append(stats.reasoningSnippets, docReasoning.Text)
+			for _, docRelevance := range rankedResponse.Relevance {
+				if stats, exists := r.allDocStats[docRelevance.ID]; exists {
+					stats.relevanceSnippets = append(stats.relevanceSnippets, docRelevance.Text)
 				}
 			}
 			r.mu.Unlock()
@@ -1736,7 +1743,7 @@ func (r *Ranker) callOpenAI(ctx context.Context, prompt string, trialNum int, ba
 		timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 
-		completion, err := client.Chat.Completions.New(timeoutCtx, openai.ChatCompletionNewParams{
+		params := openai.ChatCompletionNewParams{
 			Messages: conversationHistory,
 			ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 				OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
@@ -1749,7 +1756,13 @@ func (r *Ranker) callOpenAI(ctx context.Context, prompt string, trialNum int, ba
 				},
 			},
 			Model: r.cfg.OpenAIModel,
-		})
+		}
+
+		if r.cfg.Effort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(r.cfg.Effort)
+		}
+
+		completion, err := client.Chat.Completions.New(timeoutCtx, params)
 		if err == nil {
 			// Increment API call counter
 			numAPICalls++

@@ -33,6 +33,7 @@ var (
 	oaiModel string
 	oaiURL   string
 	encoding string
+	effort   string
 
 	// Convergence params
 	noConverge     bool
@@ -43,7 +44,7 @@ var (
 	// Execution params
 	dryRun    bool
 	debug     bool
-	reasoning bool
+	relevance bool
 )
 
 var rootCmd = &cobra.Command{
@@ -88,6 +89,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&oaiModel, "model", "m", openai.ChatModelGPT4oMini, "OpenAI model name")
 	rootCmd.Flags().StringVarP(&oaiURL, "base-url", "u", "", "OpenAI API base URL (for compatible APIs like vLLM)")
 	rootCmd.Flags().StringVar(&encoding, "encoding", "o200k_base", "tokenizer encoding")
+	rootCmd.Flags().StringVarP(&effort, "effort", "e", "", "reasoning effort level: none, minimal, low, medium, high")
 
 	// Convergence parameter flags
 	rootCmd.Flags().BoolVar(&noConverge, "no-converge", false, "disable early stopping based on convergence")
@@ -98,7 +100,7 @@ func init() {
 	// Execution flags
 	rootCmd.Flags().BoolVar(&dryRun, "dry-run", false, "log API calls without making them")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "enable debug logging")
-	rootCmd.Flags().BoolVarP(&reasoning, "reasoning", "r", false, "collect and summarize reasoning for rankings (skips round 1)")
+	rootCmd.Flags().BoolVarP(&relevance, "relevance", "r", false, "post-process each item by providing relevance justification (skips round 1)")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -140,7 +142,8 @@ func run(cmd *cobra.Command, args []string) error {
 		Encoding:        encoding,
 		BatchTokens:     batchTokens,
 		DryRun:          dryRun,
-		Reasoning:       reasoning,
+		Relevance:       relevance,
+		Effort:          effort,
 		LogLevel:        logLevel,
 
 		EnableConvergence: !noConverge,

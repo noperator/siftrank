@@ -46,6 +46,7 @@ Flags:
   -c, --concurrency int         max concurrent LLM calls across all trials (default 50)
   -d, --debug                   enable debug logging
       --dry-run                 log API calls without making them
+  -e, --effort string           reasoning effort level: none, minimal, low, medium, high
       --elbow-tolerance float   elbow position tolerance (0.05 = 5%) (default 0.05)
       --encoding string         tokenizer encoding (default "o200k_base")
   -f, --file string             input file (required)
@@ -58,7 +59,7 @@ Flags:
   -o, --output string           JSON output file
   -p, --prompt string           initial prompt (prefix with @ to use a file)
       --ratio float             refinement ratio (0.0-1.0, e.g. 0.5 = top 50%) (default 0.5)
-  -r, --reasoning               collect and summarize reasoning for rankings (skips round 1)
+  -r, --relevance               post-process each item by providing relevance justification (skips round 1)
       --stable-trials int       stable trials required for convergence (default 5)
       --template string         template for each object (prefix with @ to use a file) (default "{{.Data}}")
       --tokens int              max tokens per batch (default 128000)
@@ -176,9 +177,11 @@ I released the prototype of this tool, Raink, while at Bishop Fox. See the origi
 - [ ] run openai batch mode
 - [ ] report cost + token usage
 - [ ] add more examples, use cases
+- [ ] account for reasoning tokens separately
 
 <details><summary>Completed</summary>
 
+- [x] support reasoning effort
 - [x] add blog link
 - [x] add parameter for refinement ratio
 - [x] add ~boolean~ refinement ratio flag
