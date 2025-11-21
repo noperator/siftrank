@@ -925,19 +925,10 @@ func (r *Ranker) writeTraceLine(trialNum int, trialsCompleted int, scores map[st
 				trace.ElbowPosition = &lastElbow
 			}
 
-			// Calculate stability count
-			if stable, _ := r.isElbowStable(len(rankings)); stable {
-				trace.StableTrialsCount = r.cfg.StableTrials
-			} else {
-				// Count how many recent positions are within tolerance
-				n := len(r.elbowPositions)
-				if n >= 2 {
-					recentCount := r.cfg.StableTrials
-					if recentCount > n {
-						recentCount = n
-					}
-					trace.StableTrialsCount = recentCount - 1 // Current one not stable yet
-				}
+			// Calculate stability count using shared logic
+			stableCount, _ := r.countStableElbows(len(rankings))
+			if stableCount > 0 {
+				trace.StableTrialsCount = stableCount
 			}
 		}
 		r.mu.Unlock()
@@ -1186,19 +1177,22 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 
 			r.cfg.Logger.Info("Trial completed",
 				"round", r.round,
-				"trial", result.trialNumber,
+				"trial", completedTrialsCount,
 				"num_batches", stats.numBatches,
 				"num_calls", stats.numCalls,
 				"input_tokens", stats.usage.InputTokens,
 				"output_tokens", stats.usage.OutputTokens)
 
-			// Write trace line
-			if err := r.writeTraceLine(result.trialNumber, completedTrialsCount, scores, documents); err != nil {
+			// Check for convergence (this adds the current trial's elbow to the array)
+			converged := r.hasConverged(scores, result.trialNumber)
+
+			// Write trace line (after convergence check so current elbow is included)
+			if err := r.writeTraceLine(completedTrialsCount, completedTrialsCount, scores, documents); err != nil {
 				r.cfg.Logger.Error("Failed to write trace line", "error", err)
 			}
 
-			// Check for convergence
-			if r.hasConverged(scores, result.trialNumber) {
+			// Signal workers to stop if converged
+			if converged {
 				// No need to log here - hasConverged() already logged if it's the first detection
 				cancel() // Signal all workers to stop processing new work
 			}
@@ -1330,18 +1324,14 @@ func findElbow(rankedDocs []RankedDocument) int {
 	return elbowIdx
 }
 
-// isElbowStable checks if recent elbow positions are within tolerance
-// Returns (isStable, actualTolerance)
-func (r *Ranker) isElbowStable(numDocuments int) (bool, int) {
+// countStableElbows returns how many consecutive recent elbow positions are within tolerance
+// Returns the count (1 to StableTrials) and the tolerance used
+func (r *Ranker) countStableElbows(numDocuments int) (int, int) {
 	n := len(r.elbowPositions)
 
-	// Need at least StableTrials to check
-	if n < r.cfg.StableTrials {
-		return false, 0
+	if n < 2 {
+		return 0, 0
 	}
-
-	// Get the most recent positions
-	recentPositions := r.elbowPositions[n-r.cfg.StableTrials:]
 
 	// Calculate tolerance in absolute terms (number of positions)
 	tolerance := int(r.cfg.ElbowTolerance * float64(numDocuments))
@@ -1349,21 +1339,35 @@ func (r *Ranker) isElbowStable(numDocuments int) (bool, int) {
 		tolerance = 1 // At minimum, allow 1 position variance
 	}
 
-	// Find min and max of recent positions
-	minPos := recentPositions[0]
-	maxPos := recentPositions[0]
-	for _, pos := range recentPositions[1:] {
-		if pos < minPos {
-			minPos = pos
+	// Check windows of increasing size to find largest that fits within tolerance
+	stableCount := 1 // Current position always counts
+	for windowSize := 2; windowSize <= r.cfg.StableTrials && windowSize <= n; windowSize++ {
+		// Check if last 'windowSize' positions are all within tolerance
+		start := n - windowSize
+		minPos := r.elbowPositions[start]
+		maxPos := r.elbowPositions[start]
+		for i := start + 1; i < n; i++ {
+			if r.elbowPositions[i] < minPos {
+				minPos = r.elbowPositions[i]
+			}
+			if r.elbowPositions[i] > maxPos {
+				maxPos = r.elbowPositions[i]
+			}
 		}
-		if pos > maxPos {
-			maxPos = pos
+
+		if maxPos-minPos <= tolerance {
+			stableCount = windowSize
 		}
 	}
 
-	// Check if range is within tolerance
-	isStable := (maxPos - minPos) <= tolerance
-	return isStable, tolerance
+	return stableCount, tolerance
+}
+
+// isElbowStable checks if recent elbow positions are within tolerance
+// Returns (isStable, actualTolerance)
+func (r *Ranker) isElbowStable(numDocuments int) (bool, int) {
+	stableCount, tolerance := r.countStableElbows(numDocuments)
+	return stableCount >= r.cfg.StableTrials, tolerance
 }
 
 // isRankingStable checks if the full ranking order has stabilized
