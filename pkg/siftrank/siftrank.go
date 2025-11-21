@@ -13,21 +13,16 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
-	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
 
-	"github.com/invopop/jsonschema"
 	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/shared"
-	"github.com/pkoukk/tiktoken-go"
 )
 
 const (
@@ -73,28 +68,33 @@ When deciding whether a value belongs in Config or Ranker structs, consider the 
 */
 
 type Config struct {
-	InitialPrompt   string           `json:"initial_prompt"`
-	BatchSize       int              `json:"batch_size"`
-	NumTrials       int              `json:"num_trials"`
-	Concurrency     int              `json:"concurrency"`
-	OpenAIModel     openai.ChatModel `json:"openai_model"`
-	RefinementRatio float64          `json:"refinement_ratio"`
-	OpenAIKey       string           `json:"-"`
-	OpenAIAPIURL    string           `json:"-"`
-	Encoding        string           `json:"encoding"`
-	BatchTokens     int              `json:"batch_tokens"`
-	DryRun          bool             `json:"-"`
-	TracePath       string           `json:"-"`
-	Relevance       bool             `json:"relevance"`
-	Effort          string           `json:"effort"`
-	Logger          *slog.Logger     `json:"-"`
-	LogLevel        slog.Level       `json:"-"` // Defaults to 0 (slog.LevelInfo)
+	InitialPrompt   string       `json:"initial_prompt"`
+	BatchSize       int          `json:"batch_size"`
+	NumTrials       int          `json:"num_trials"`
+	Concurrency     int          `json:"concurrency"`
+	RefinementRatio float64      `json:"refinement_ratio"`
+	BatchTokens     int          `json:"batch_tokens"`
+	DryRun          bool         `json:"-"`
+	TracePath       string       `json:"-"`
+	Relevance       bool         `json:"relevance"`
+	LogLevel        slog.Level   `json:"-"` // Defaults to 0 (slog.LevelInfo)
+	Logger          *slog.Logger `json:"-"`
 
 	// Convergence detection
 	EnableConvergence bool    `json:"enable_convergence"`
 	ElbowTolerance    float64 `json:"elbow_tolerance"`
 	StableTrials      int     `json:"stable_trials"`
 	MinTrials         int     `json:"min_trials"`
+
+	// LLM configuration
+	LLMProvider LLMProvider `json:"-"` // Optional: if nil, creates default OpenAI provider
+
+	// OpenAI defaults (used only if LLMProvider is nil)
+	OpenAIModel  openai.ChatModel `json:"openai_model"`
+	OpenAIKey    string           `json:"-"`
+	OpenAIAPIURL string           `json:"-"`
+	Encoding     string           `json:"encoding"`
+	Effort       string           `json:"effort"`
 }
 
 func (c *Config) Validate() error {
@@ -113,7 +113,8 @@ func (c *Config) Validate() error {
 	if c.BatchTokens <= 0 {
 		return fmt.Errorf("batch tokens must be greater than 0")
 	}
-	if c.OpenAIAPIURL == "" && c.OpenAIKey == "" {
+	// Only require OpenAI key if no provider is set
+	if c.LLMProvider == nil && c.OpenAIAPIURL == "" && c.OpenAIKey == "" {
 		return fmt.Errorf("openai key cannot be empty")
 	}
 	if c.BatchSize < minBatchSize {
@@ -140,34 +141,22 @@ type docStats struct {
 	relevanceSnippets []string // Collected relevance from all batches/trials
 }
 
-// Usage tracks token consumption for cost analysis
-type Usage struct {
-	InputTokens  int
-	OutputTokens int
-}
-
-// Add method to accumulate usage
-func (u *Usage) Add(other Usage) {
-	u.InputTokens += other.InputTokens
-	u.OutputTokens += other.OutputTokens
-}
-
 type Ranker struct {
 	cfg              *Config
-	encoding         *tiktoken.Tiktoken
+	provider         LLMProvider
 	rng              *rand.Rand
 	numBatches       int
 	round            int
-	semaphore        chan struct{}                 // Global concurrency limiter
-	elbowPositions   []int                         // Track elbow position after each trial
-	rankingOrders    [][]string                    // Track full ranking order per trial
-	mu               sync.Mutex                    // Protect elbowPositions, rankingOrders, converged, comparedAgainst, and allDocStats
-	converged        bool                          // Track if convergence already detected
-	elbowCutoff      int                           // Cutoff position for refinement
-	originalDocCount int                           // Track original dataset size for exposure calculation
-	comparedAgainst  map[string]map[string]bool    // Track which docs each was compared against (across ALL rounds/trials)
-	allDocStats      map[string]*docStats          // Track all documents across rounds (for relevance collection)
-	traceFile        *os.File                      // Keep file open across all rounds
+	semaphore        chan struct{}              // Global concurrency limiter
+	elbowPositions   []int                      // Track elbow position after each trial
+	rankingOrders    [][]string                 // Track full ranking order per trial
+	mu               sync.Mutex                 // Protect elbowPositions, rankingOrders, converged, comparedAgainst, and allDocStats
+	converged        bool                       // Track if convergence already detected
+	elbowCutoff      int                        // Cutoff position for refinement
+	originalDocCount int                        // Track original dataset size for exposure calculation
+	comparedAgainst  map[string]map[string]bool // Track which docs each was compared against (across ALL rounds/trials)
+	allDocStats      map[string]*docStats       // Track all documents across rounds (for relevance collection)
+	traceFile        *os.File                   // Keep file open across all rounds
 
 	// Token and call tracking (accumulate across all rounds)
 	totalUsage   Usage
@@ -190,14 +179,26 @@ func NewRanker(config *Config) (*Ranker, error) {
 		})).With("component", "siftrank")
 	}
 
-	encoding, err := tiktoken.GetEncoding(config.Encoding)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tiktoken encoding: %w", err)
+	// Create provider (default to OpenAI if none specified)
+	provider := config.LLMProvider
+	if provider == nil {
+		var err error
+		provider, err = NewOpenAIProvider(OpenAIConfig{
+			APIKey:   config.OpenAIKey,
+			Model:    config.OpenAIModel,
+			BaseURL:  config.OpenAIAPIURL,
+			Encoding: config.Encoding,
+			Effort:   config.Effort,
+			Logger:   config.Logger,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OpenAI provider: %w", err)
+		}
 	}
 
 	return &Ranker{
 		cfg:       config,
-		encoding:  encoding,
+		provider:  provider,
 		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
 		semaphore: make(chan struct{}, config.Concurrency),
 	}, nil
@@ -278,8 +279,8 @@ type documentRelevance struct {
 
 // Used for parsing API responses (can handle both with and without relevance)
 type rankedDocumentResponse struct {
-	Documents []string             `json:"docs"`
-	Relevance []documentRelevance  `json:"relevance,omitempty"`
+	Documents []string            `json:"docs"`
+	Relevance []documentRelevance `json:"relevance,omitempty"`
 }
 
 // Used for schema generation in round 1 or when relevance disabled
@@ -289,8 +290,8 @@ type rankedDocumentResponseNoRelevance struct {
 
 // Used for schema generation in rounds 2+ when relevance enabled
 type rankedDocumentResponseWithRelevance struct {
-	Documents []string             `json:"docs" jsonschema_description:"List of ranked document IDs"`
-	Relevance []documentRelevance  `json:"relevance" jsonschema_description:"Brief explanation of qualities for each document"`
+	Documents []string            `json:"docs" jsonschema_description:"List of ranked document IDs"`
+	Relevance []documentRelevance `json:"relevance" jsonschema_description:"Brief explanation of qualities for each document"`
 }
 
 type RelevanceProsCons struct {
@@ -299,14 +300,14 @@ type RelevanceProsCons struct {
 }
 
 type RankedDocument struct {
-	Key       string              `json:"key"`
-	Value     string              `json:"value"`
-	Document  interface{}         `json:"document"` // if loading from json file
-	Score     float64             `json:"score"`
-	Exposure  float64             `json:"exposure"`  // percentage of dataset compared against (0.0-1.0)
-	Rank      int                 `json:"rank"`
-	Rounds    int                 `json:"rounds"`    // number of rounds participated in
-	Relevance *RelevanceProsCons  `json:"relevance,omitempty"` // Only if relevance enabled
+	Key       string             `json:"key"`
+	Value     string             `json:"value"`
+	Document  interface{}        `json:"document"` // if loading from json file
+	Score     float64            `json:"score"`
+	Exposure  float64            `json:"exposure"` // percentage of dataset compared against (0.0-1.0)
+	Rank      int                `json:"rank"`
+	Rounds    int                `json:"rounds"`              // number of rounds participated in
+	Relevance *RelevanceProsCons `json:"relevance,omitempty"` // Only if relevance enabled
 }
 
 type traceDocument struct {
@@ -316,25 +317,15 @@ type traceDocument struct {
 }
 
 type traceLine struct {
-	Round              int              `json:"round"`
-	Trial              int              `json:"trial"`
-	TrialsCompleted    int              `json:"trials_completed"`
-	TrialsRemaining    int              `json:"trials_remaining"`
-	TotalInputTokens   int              `json:"total_input_tokens"`
-	TotalOutputTokens  int              `json:"total_output_tokens"`
-	ElbowPosition      *int             `json:"elbow_position,omitempty"`      // nil if not detected
-	StableTrialsCount  int              `json:"stable_trials_count,omitempty"` // only if convergence enabled
-	Rankings           []traceDocument  `json:"rankings"`
-}
-
-func generateSchema[T any]() interface{} {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		DoNotReference:            true,
-	}
-	var v T
-	schema := reflector.Reflect(v)
-	return schema
+	Round             int             `json:"round"`
+	Trial             int             `json:"trial"`
+	TrialsCompleted   int             `json:"trials_completed"`
+	TrialsRemaining   int             `json:"trials_remaining"`
+	TotalInputTokens  int             `json:"total_input_tokens"`
+	TotalOutputTokens int             `json:"total_output_tokens"`
+	ElbowPosition     *int            `json:"elbow_position,omitempty"`      // nil if not detected
+	StableTrialsCount int             `json:"stable_trials_count,omitempty"` // only if convergence enabled
+	Rankings          []traceDocument `json:"rankings"`
 }
 
 // createIDMappings generates memorable temporary IDs for a batch of documents
@@ -495,6 +486,7 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 		type summaryResult struct {
 			index   int
 			summary *RelevanceProsCons
+			usage   Usage
 			err     error
 		}
 
@@ -514,8 +506,8 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 						"of", len(results),
 						"snippets", len(job.snippets),
 						"worker", workerID)
-					summary, err := r.summarizeRelevance(job.key, job.value, job.snippets)
-					resultsChan <- summaryResult{index: job.index, summary: summary, err: err}
+					summary, usage, err := r.summarizeRelevance(job.key, job.value, job.snippets)
+					resultsChan <- summaryResult{index: job.index, summary: summary, usage: usage, err: err}
 				}
 			}(w)
 		}
@@ -544,8 +536,16 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 			close(resultsChan)
 		}()
 
-		// Collect results
+		// Collect results and track usage
 		for result := range resultsChan {
+			// Track usage (even on error, some tokens may have been used)
+			r.mu.Lock()
+			r.totalUsage.Add(result.usage)
+			if result.usage.InputTokens > 0 || result.usage.OutputTokens > 0 {
+				r.totalCalls++
+			}
+			r.mu.Unlock()
+
 			if result.err != nil {
 				r.cfg.Logger.Warn("Failed to summarize relevance", "document", result.index, "error", result.err)
 				results[result.index].Relevance = nil
@@ -767,10 +767,10 @@ func (r *Ranker) rank(documents []document, round int) []RankedDocument {
 	return finalResults
 }
 
-func (r *Ranker) summarizeRelevance(docID string, docValue string, snippets []string) (*RelevanceProsCons, error) {
+func (r *Ranker) summarizeRelevance(docID string, docValue string, snippets []string) (*RelevanceProsCons, Usage, error) {
 	// Skip if no snippets or dry run mode
 	if len(snippets) == 0 || r.cfg.DryRun {
-		return nil, nil
+		return nil, Usage{}, nil
 	}
 
 	// Build prompt with numbered snippets
@@ -806,68 +806,35 @@ Relevance snippets:
 Provide your response in JSON format with two keys: 'pros' and 'cons'. Each value should be a string (or empty string if nothing to say).
 Example: {"pros": "Strong connection to X. References Y explicitly.", "cons": "Lacks specificity compared to documents with Z."}`, len(snippets), docValue, snippetsList)
 
-	// Set up OpenAI client
-	customTransport := &customTransport{Transport: http.DefaultTransport}
-	customClient := &http.Client{Transport: customTransport}
-
-	clientOptions := []option.RequestOption{
-		option.WithAPIKey(r.cfg.OpenAIKey),
-		option.WithHTTPClient(customClient),
-		option.WithMaxRetries(3),
-	}
-
-	if r.cfg.OpenAIAPIURL != "" {
-		baseURL := r.cfg.OpenAIAPIURL
-		if !strings.HasSuffix(baseURL, "/") {
-			baseURL += "/"
-		}
-		clientOptions = append(clientOptions, option.WithBaseURL(baseURL))
-	}
-
-	client := openai.NewClient(clientOptions...)
-
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	// Generate schema for RelevanceProsCons
 	schema := generateSchema[RelevanceProsCons]()
 
-	// Call OpenAI API
-	params := openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(prompt),
-		},
-		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
-				JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
-					Name:        "relevance_pros_cons",
-					Description: openai.String("Pros and cons analysis of document relevance"),
-					Schema:      schema,
-					Strict:      openai.Bool(true),
-				},
-			},
-		},
-		Model: r.cfg.OpenAIModel,
+	// Call provider with options
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	opts := &CompletionOptions{
+		Schema: schema,
 	}
 
-	if r.cfg.Effort != "" {
-		params.ReasoningEffort = shared.ReasoningEffort(r.cfg.Effort)
-	}
-
-	completion, err := client.Chat.Completions.New(ctx, params)
-
+	rawResponse, err := r.provider.Complete(ctx, prompt, opts)
 	if err != nil {
-		return nil, fmt.Errorf("OpenAI API call failed: %w", err)
+		return nil, opts.Usage, fmt.Errorf("provider call failed: %w", err)
+	}
+
+	// Extract JSON from response
+	jsonResponse, err := extractJSON(rawResponse)
+	if err != nil {
+		return nil, opts.Usage, fmt.Errorf("failed to extract JSON: %w", err)
 	}
 
 	// Parse response
 	var result RelevanceProsCons
-	if err := json.Unmarshal([]byte(completion.Choices[0].Message.Content), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse relevance response: %w", err)
+	if err := json.Unmarshal([]byte(jsonResponse), &result); err != nil {
+		return nil, opts.Usage, fmt.Errorf("failed to parse relevance response: %w", err)
 	}
 
-	return &result, nil
+	return &result, opts.Usage, nil
 }
 
 func (r *Ranker) writeTraceLine(trialNum int, trialsCompleted int, scores map[string][]float64, documents []document) error {
@@ -1103,8 +1070,8 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 	}()
 
 	// Track trial completion and stats
-	completedBatches := make(map[int]int)       // trialNum -> count of completed batches
-	completedTrials := make(map[int]bool)       // trialNum -> true if all batches completed
+	completedBatches := make(map[int]int) // trialNum -> count of completed batches
+	completedTrials := make(map[int]bool) // trialNum -> true if all batches completed
 
 	// Track per-trial stats
 	type trialStats struct {
@@ -1636,7 +1603,49 @@ func (r *Ranker) estimateTokens(group []document, includePrompt bool) int {
 		text += fmt.Sprintf(promptFmt, doc.ID, doc.Value)
 	}
 
-	return len(r.encoding.Encode(text, nil, nil))
+	tokens := r.provider.EstimateTokens(text)
+	if tokens < 0 {
+		// Provider doesn't support estimation, use rough approximation
+		return len(text) / 4
+	}
+	return tokens
+}
+
+// extractJSON attempts to extract JSON from various response formats.
+// Handles:
+// - Plain JSON
+// - Markdown code blocks (```json ... ``` or ``` ... ```)
+// Returns the extracted JSON string or error if no valid JSON found.
+func extractJSON(response string) (string, error) {
+	response = strings.TrimSpace(response)
+
+	if response == "" {
+		return "", fmt.Errorf("empty response")
+	}
+
+	// Try as-is first (most common with structured output)
+	var js json.RawMessage
+	if err := json.Unmarshal([]byte(response), &js); err == nil {
+		return response, nil
+	}
+
+	// Try extracting from markdown code blocks
+	patterns := []string{
+		"```json\\s*\\n([\\s\\S]*?)\\n```",
+		"```\\s*\\n([\\s\\S]*?)\\n```",
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		if matches := re.FindStringSubmatch(response); len(matches) > 1 {
+			jsonStr := strings.TrimSpace(matches[1])
+			if err := json.Unmarshal([]byte(jsonStr), &js); err == nil {
+				return jsonStr, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no valid JSON found in response")
 }
 
 func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int, batchNumber int) ([]rankedDocument, int, Usage, error) {
@@ -1656,6 +1665,16 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 	var totalUsage Usage
 	var numCalls int
 
+	// Get schema once
+	schema := r.getResponseSchema()
+
+	// Track previous attempt for feedback
+	type previousAttempt struct {
+		response string
+		problem  string // What went wrong
+	}
+	var lastAttempt *previousAttempt
+
 	maxRetries := 10
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Check if context cancelled
@@ -1667,7 +1686,10 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 		originalToTemp, tempToOriginal, err := createIDMappings(group, r.rng, r.cfg.Logger)
 		useMemorableIDs := err == nil && originalToTemp != nil && tempToOriginal != nil
 
+		// Build prompt (business logic)
 		prompt := r.cfg.InitialPrompt + promptDisclaimer
+
+		// Track input IDs for validation
 		inputIDs := make(map[string]bool)
 
 		if useMemorableIDs {
@@ -1702,50 +1724,107 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 			prompt += "}\n"
 		}
 
-		var rankedResponse rankedDocumentResponse
-		var apiCalls int
-		var callUsage Usage
-		rankedResponse, apiCalls, callUsage, err = r.callOpenAI(ctx, prompt, trialNumber, batchNumber, inputIDs)
+		// Add feedback from previous attempt (SiftRank's business logic - prompt-based feedback)
+		if lastAttempt != nil {
+			prompt += "\n\n--- PREVIOUS ATTEMPT ---\n"
+			prompt += fmt.Sprintf("You previously returned: %s\n", lastAttempt.response)
+			prompt += fmt.Sprintf("PROBLEM: %s\n", lastAttempt.problem)
+			prompt += "Please provide a corrected response.\n"
+			prompt += "--- END PREVIOUS ATTEMPT ---\n"
+		}
 
-		// Accumulate API calls and usage (even if there was an error, partial calls may have been made)
-		numCalls += apiCalls
-		totalUsage.Add(callUsage)
+		// Call provider with options
+		opts := &CompletionOptions{
+			Schema: schema,
+		}
+
+		rawResponse, err := r.provider.Complete(ctx, prompt, opts)
+
+		// Accumulate usage from opts
+		numCalls++
+		totalUsage.Add(opts.Usage)
+
+		// Log the call
+		r.cfg.Logger.Debug("LLM call completed",
+			"round", r.round,
+			"trial", trialNumber,
+			"batch", batchNumber,
+			"attempt", attempt+1,
+			"input_tokens", opts.Usage.InputTokens,
+			"output_tokens", opts.Usage.OutputTokens,
+			"reasoning_tokens", opts.Usage.ReasoningTokens,
+			"model", opts.ModelUsed,
+			"finish_reason", opts.FinishReason)
 
 		if err != nil {
 			if attempt == maxRetries-1 {
 				return nil, numCalls, totalUsage, err
 			}
-			r.logFromApiCall(trialNumber, batchNumber, "API call failed, retrying with new memorable IDs (attempt %d): %v", attempt+1, err)
+			r.logFromApiCall(trialNumber, batchNumber,
+				"Provider call failed, retrying (attempt %d): %v", attempt+1, err)
 			continue
 		}
 
-		// Translate temporary IDs back to original IDs if using memorable IDs
+		// Extract JSON from response (handles markdown, etc.)
+		jsonResponse, err := extractJSON(rawResponse)
+		if err != nil {
+			lastAttempt = &previousAttempt{
+				response: rawResponse,
+				problem:  "Your response was not valid JSON or was not formatted correctly. Please respond with ONLY valid JSON matching the schema, with no markdown formatting or extra text.",
+			}
+
+			if attempt == maxRetries-1 {
+				return nil, numCalls, totalUsage,
+					fmt.Errorf("failed to extract JSON after %d attempts: %w", maxRetries, err)
+			}
+
+			r.logFromApiCall(trialNumber, batchNumber,
+				"JSON extraction failed, retrying (attempt %d): %v", attempt+1, err)
+			continue
+		}
+
+		// Parse JSON (business logic)
+		var rankedResponse rankedDocumentResponse
+		if err := json.Unmarshal([]byte(jsonResponse), &rankedResponse); err != nil {
+			lastAttempt = &previousAttempt{
+				response: jsonResponse,
+				problem:  fmt.Sprintf("Your JSON had a syntax error: %v", err),
+			}
+
+			if attempt == maxRetries-1 {
+				return nil, numCalls, totalUsage, fmt.Errorf("invalid JSON: %w", err)
+			}
+
+			r.logFromApiCall(trialNumber, batchNumber,
+				"JSON parse failed, retrying (attempt %d): %v", attempt+1, err)
+			continue
+		}
+
+		// Validate IDs (business logic)
+		// This also fixes case-insensitive matches in place
+		missingIDs, err := validateIDs(&rankedResponse, inputIDs)
+		if err != nil {
+			lastAttempt = &previousAttempt{
+				response: jsonResponse,
+				problem:  fmt.Sprintf("You're missing these IDs: [%s]. Please include ALL IDs.", strings.Join(missingIDs, ", ")),
+			}
+
+			if attempt == maxRetries-1 {
+				return nil, numCalls, totalUsage,
+					fmt.Errorf("missing IDs after %d attempts: %v", maxRetries, missingIDs)
+			}
+
+			r.logFromApiCall(trialNumber, batchNumber,
+				"Missing IDs, retrying (attempt %d): %v", attempt+1, missingIDs)
+			continue
+		}
+
+		// Translate memorable IDs back (business logic)
 		if useMemorableIDs {
 			translateIDsInResponse(&rankedResponse, tempToOriginal)
 		}
 
-		// Check if we got all expected IDs
-		expectedIDs := make(map[string]bool)
-		for _, doc := range group {
-			expectedIDs[doc.ID] = true
-		}
-		for _, id := range rankedResponse.Documents {
-			delete(expectedIDs, id)
-		}
-
-		if len(expectedIDs) > 0 {
-			var missingIDs []string
-			for id := range expectedIDs {
-				missingIDs = append(missingIDs, id)
-			}
-			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage, fmt.Errorf("missing IDs after %d attempts: %v", maxRetries, missingIDs)
-			}
-			r.logFromApiCall(trialNumber, batchNumber, "Missing IDs, retrying with new memorable IDs (attempt %d): %v", attempt+1, missingIDs)
-			continue
-		}
-
-		// Success! Assign scores based on position in the ranked list
+		// Success! Build ranked documents (business logic)
 		var rankedDocs []rankedDocument
 		for i, id := range rankedResponse.Documents {
 			for _, doc := range group {
@@ -1759,7 +1838,7 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 			}
 		}
 
-		// Store relevance snippets if collected
+		// Store relevance snippets if collected (business logic)
 		if r.cfg.Relevance && r.round > 1 && len(rankedResponse.Relevance) > 0 {
 			r.mu.Lock()
 			for _, docRelevance := range rankedResponse.Relevance {
@@ -1774,32 +1853,6 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 	}
 
 	return nil, numCalls, totalUsage, fmt.Errorf("failed after %d attempts", maxRetries)
-}
-
-type customTransport struct {
-	Transport  http.RoundTripper
-	Headers    http.Header
-	StatusCode int
-	Body       []byte
-}
-
-func (t *customTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := t.Transport.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-
-	t.Headers = resp.Header
-	t.StatusCode = resp.StatusCode
-
-	t.Body, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	resp.Body = io.NopCloser(bytes.NewBuffer(t.Body))
-
-	return resp, nil
 }
 
 // validateIDs updates the rankedResponse in place to fix case-insensitive ID mismatches.
@@ -1836,167 +1889,5 @@ func validateIDs(rankedResponse *rankedDocumentResponse, inputIDs map[string]boo
 			missingIDsKeys = append(missingIDsKeys, id)
 		}
 		return missingIDsKeys, fmt.Errorf("missing IDs: %s", strings.Join(missingIDsKeys, ", "))
-	}
-}
-
-func (r *Ranker) callOpenAI(ctx context.Context, prompt string, trialNum int, batchNum int, inputIDs map[string]bool) (rankedDocumentResponse, int, Usage, error) {
-
-	customTransport := &customTransport{Transport: http.DefaultTransport}
-	customClient := &http.Client{Transport: customTransport}
-
-	clientOptions := []option.RequestOption{
-		option.WithAPIKey(r.cfg.OpenAIKey),
-		option.WithHTTPClient(customClient),
-		option.WithMaxRetries(5),
-	}
-
-	// Add base URL option if specified
-	if r.cfg.OpenAIAPIURL != "" {
-		// Ensure the URL ends with a trailing slash
-		baseURL := r.cfg.OpenAIAPIURL
-		if !strings.HasSuffix(baseURL, "/") {
-			baseURL += "/"
-		}
-		clientOptions = append(clientOptions, option.WithBaseURL(baseURL))
-	}
-
-	client := openai.NewClient(clientOptions...)
-
-	backoff := time.Second
-
-	conversationHistory := []openai.ChatCompletionMessageParamUnion{
-		openai.UserMessage(prompt),
-	}
-
-	var rankedResponse rankedDocumentResponse
-	var totalUsage Usage // Accumulate across retries in this function
-	var numAPICalls int  // Track actual API calls made
-
-	for {
-		// Check if context cancelled before API call
-		if ctx.Err() != nil {
-			return rankedDocumentResponse{}, numAPICalls, totalUsage, ctx.Err()
-		}
-
-		// Create timeout context that respects parent cancellation
-		timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel()
-
-		params := openai.ChatCompletionNewParams{
-			Messages: conversationHistory,
-			ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
-				OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
-					JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
-						Name:        "ranked_document_response",
-						Description: openai.String("List of ranked document IDs"),
-						Schema:      r.getResponseSchema(),
-						Strict:      openai.Bool(true),
-					},
-				},
-			},
-			Model: r.cfg.OpenAIModel,
-		}
-
-		if r.cfg.Effort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(r.cfg.Effort)
-		}
-
-		completion, err := client.Chat.Completions.New(timeoutCtx, params)
-		if err == nil {
-			// Increment API call counter
-			numAPICalls++
-
-			// Extract usage from this call
-			callUsage := Usage{
-				InputTokens:  int(completion.Usage.PromptTokens),
-				OutputTokens: int(completion.Usage.CompletionTokens),
-			}
-			totalUsage.Add(callUsage)
-
-			// Log successful API call (before validation)
-			r.cfg.Logger.Debug("LLM call completed",
-				"round", r.round,
-				"trial", trialNum,
-				"batch", batchNum,
-				"call", numAPICalls,
-				"input_tokens", callUsage.InputTokens,
-				"output_tokens", callUsage.OutputTokens)
-
-			conversationHistory = append(conversationHistory,
-				openai.AssistantMessage(completion.Choices[0].Message.Content),
-			)
-
-			err = json.Unmarshal([]byte(completion.Choices[0].Message.Content), &rankedResponse)
-			if err != nil {
-				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Error unmarshalling response: %v\n", err))
-				conversationHistory = append(conversationHistory,
-					openai.UserMessage(invalidJSONStr),
-				)
-				trimmedContent := strings.TrimSpace(completion.Choices[0].Message.Content)
-				r.cfg.Logger.Debug("OpenAI API response", "content", trimmedContent)
-				continue
-			}
-
-			missingIDs, err := validateIDs(&rankedResponse, inputIDs)
-			if err != nil {
-				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Missing IDs: [%s]", strings.Join(missingIDs, ", ")))
-				conversationHistory = append(conversationHistory,
-					openai.UserMessage(fmt.Sprintf(missingIDsStr, strings.Join(missingIDs, ", "))),
-				)
-				trimmedContent := strings.TrimSpace(completion.Choices[0].Message.Content)
-				r.cfg.Logger.Debug("OpenAI API response", "content", trimmedContent)
-				continue
-			}
-
-			return rankedResponse, numAPICalls, totalUsage, nil
-		}
-
-		// Check if cancellation caused the error
-		if ctx.Err() != nil {
-			return rankedDocumentResponse{}, numAPICalls, totalUsage, ctx.Err()
-		}
-
-		if err == context.DeadlineExceeded {
-			r.logFromApiCall(trialNum, batchNum, "Context deadline exceeded, retrying...")
-			time.Sleep(backoff)
-			backoff *= 2
-			continue
-		}
-
-		if customTransport.StatusCode == http.StatusTooManyRequests {
-			for key, values := range customTransport.Headers {
-				if strings.HasPrefix(key, "X-Ratelimit") {
-					for _, value := range values {
-						r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Rate limit header: %s: %s", key, value))
-					}
-				}
-			}
-
-			respBody := customTransport.Body
-			if respBody == nil {
-				r.logFromApiCall(trialNum, batchNum, "Error reading response body: %v", "response body is nil")
-			} else {
-				r.logFromApiCall(trialNum, batchNum, "Response body: %s", string(respBody))
-			}
-
-			remainingTokensStr := customTransport.Headers.Get("X-Ratelimit-Remaining-Tokens")
-			resetTokensStr := customTransport.Headers.Get("X-Ratelimit-Reset-Tokens")
-
-			remainingTokens, _ := strconv.Atoi(remainingTokensStr)
-			resetDuration, _ := time.ParseDuration(strings.Replace(resetTokensStr, "s", "s", 1))
-
-			r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Rate limit exceeded. Suggested wait time: %v. Remaining tokens: %d", resetDuration, remainingTokens))
-
-			if resetDuration > 0 {
-				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Waiting for %v before retrying...", resetDuration))
-				time.Sleep(resetDuration)
-			} else {
-				r.logFromApiCall(trialNum, batchNum, fmt.Sprintf("Waiting for %v before retrying...", backoff))
-				time.Sleep(backoff)
-				backoff *= 2
-			}
-		} else {
-			return rankedDocumentResponse{}, numAPICalls, totalUsage, fmt.Errorf("trial %*d/%d, batch %*d/%d: unexpected error: %w", len(strconv.Itoa(r.cfg.NumTrials)), trialNum, r.cfg.NumTrials, len(strconv.Itoa(r.numBatches)), batchNum, r.numBatches, err)
-		}
 	}
 }
