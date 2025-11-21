@@ -1183,6 +1183,13 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 				"input_tokens", stats.usage.InputTokens,
 				"output_tokens", stats.usage.OutputTokens)
 
+			// Update running totals immediately after trial completion
+			r.mu.Lock()
+			r.totalUsage.Add(stats.usage)
+			r.totalCalls += stats.numCalls
+			r.totalBatches += stats.numBatches
+			r.mu.Unlock()
+
 			// Check for convergence (this adds the current trial's elbow to the array)
 			converged := r.hasConverged(scores, result.trialNumber)
 
@@ -1219,11 +1226,8 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 		"input_tokens", roundUsage.InputTokens,
 		"output_tokens", roundUsage.OutputTokens)
 
-	// Accumulate into ranker totals
+	// Update round-level totals (usage/calls/batches already updated per-trial)
 	r.mu.Lock()
-	r.totalUsage.Add(roundUsage)
-	r.totalCalls += roundCalls
-	r.totalBatches += roundBatches
 	r.totalTrials += completedTrialsCount
 	r.totalRounds++ // Increment on each round
 	r.mu.Unlock()
