@@ -46,6 +46,7 @@ var (
 	debug     bool
 	relevance bool
 	traceFile string
+	observe   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -103,6 +104,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "enable debug logging")
 	rootCmd.Flags().BoolVarP(&relevance, "relevance", "r", false, "post-process each item by providing relevance justification (skips round 1)")
 	rootCmd.Flags().StringVar(&traceFile, "trace", "", "trace file path for streaming trial execution state (JSON Lines format)")
+	rootCmd.Flags().BoolVar(&observe, "observe", false, "enable live terminal visualization")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -148,6 +150,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Relevance:       relevance,
 		Effort:          effort,
 		LogLevel:        logLevel,
+		Observe:         observe,
 
 		EnableConvergence: !noConverge,
 		ElbowTolerance:    elbowTolerance,

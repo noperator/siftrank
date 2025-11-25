@@ -15,14 +15,17 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"text/template"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/invopop/jsonschema"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -95,6 +98,9 @@ type Config struct {
 	ElbowTolerance    float64 `json:"elbow_tolerance"`
 	StableTrials      int     `json:"stable_trials"`
 	MinTrials         int     `json:"min_trials"`
+
+	// Visualization
+	Observe bool `json:"-"` // Enable live terminal visualization
 }
 
 func (c *Config) Validate() error {
@@ -168,6 +174,7 @@ type Ranker struct {
 	comparedAgainst  map[string]map[string]bool    // Track which docs each was compared against (across ALL rounds/trials)
 	allDocStats      map[string]*docStats          // Track all documents across rounds (for relevance collection)
 	traceFile        *os.File                      // Keep file open across all rounds
+	screen           interface{}                   // tcell.Screen for terminal visualization (interface{} to avoid import cycle)
 
 	// Token and call tracking (accumulate across all rounds)
 	totalUsage   Usage
@@ -446,6 +453,70 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 
 	if err := r.adjustBatchSize(documents); err != nil {
 		return nil, err
+	}
+
+	// Initialize terminal visualization if enabled
+	if r.cfg.Observe {
+		// Redirect logger to file when in observe mode to avoid clobbering TUI
+		logFile, err := os.OpenFile("siftrank.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err == nil {
+			r.cfg.Logger = slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{
+				Level:     r.cfg.LogLevel,
+				AddSource: false,
+			})).With("component", "siftrank")
+			defer logFile.Close()
+		}
+
+		screen, err := tcell.NewScreen()
+		if err != nil {
+			r.cfg.Logger.Warn("Failed to create screen for visualization", "error", err)
+			r.cfg.Observe = false // Disable observe mode
+		} else {
+			if err := screen.Init(); err != nil {
+				r.cfg.Logger.Warn("Failed to initialize screen for visualization", "error", err)
+				r.cfg.Observe = false // Disable observe mode
+			} else {
+				r.screen = screen
+				defer func() {
+					if r.screen != nil {
+						if s, ok := r.screen.(tcell.Screen); ok {
+							s.Fini()
+						}
+					}
+				}()
+
+				// Setup signal and keyboard event handlers
+				sigChan := make(chan os.Signal, 1)
+				signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+				// Keyboard event handler
+				go func() {
+					for {
+						ev := screen.PollEvent()
+						switch ev := ev.(type) {
+						case *tcell.EventKey:
+							if ev.Key() == tcell.KeyCtrlC || ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' {
+								if s, ok := r.screen.(tcell.Screen); ok {
+									s.Fini()
+								}
+								os.Exit(0)
+							}
+						case *tcell.EventResize:
+							screen.Sync()
+						}
+					}
+				}()
+
+				// Signal handler
+				go func() {
+					<-sigChan
+					if s, ok := r.screen.(tcell.Screen); ok {
+						s.Fini()
+					}
+					os.Exit(0)
+				}()
+			}
+		}
 	}
 
 	// Open trace file if specified
@@ -949,7 +1020,79 @@ func (r *Ranker) writeTraceLine(trialNum int, trialsCompleted int, scores map[st
 		return fmt.Errorf("failed to sync trace file: %w", err)
 	}
 
+	// Render visualization if observe mode enabled
+	if r.cfg.Observe && r.screen != nil {
+		r.renderVisualization(rankings, r.round, trialNum)
+	}
+
 	return nil
+}
+
+// writeString writes a string to the screen at the given position with the given style
+func (r *Ranker) writeString(screen tcell.Screen, x, y int, s string, style tcell.Style) {
+	for i, ch := range s {
+		screen.SetContent(x+i, y, ch, nil, style)
+	}
+}
+
+// renderVisualization renders the current ranking state to the terminal
+func (r *Ranker) renderVisualization(rankings []traceDocument, round, trial int) {
+	if r.screen == nil {
+		return
+	}
+
+	screen, ok := r.screen.(tcell.Screen)
+	if !ok {
+		return
+	}
+
+	screen.Clear()
+	width, height := screen.Size()
+
+	// Help text
+	help := "Press Ctrl+C, Esc, or 'q' to quit"
+	r.writeString(screen, 0, 0, help, tcell.StyleDefault.Foreground(tcell.ColorDarkGray))
+
+	// Header
+	header := fmt.Sprintf("Round %d | Trial %d | Items: %d", round, trial, len(rankings))
+	r.writeString(screen, 0, 1, header, tcell.StyleDefault.Bold(true))
+
+	// Calculate max score for normalization
+	maxScore := 0.0
+	if len(rankings) > 0 {
+		maxScore = rankings[len(rankings)-1].Score
+	}
+
+	// Rankings (one per line, starting at row 3)
+	for i, doc := range rankings {
+		row := i + 3
+		if row >= height {
+			break // Don't render beyond screen height
+		}
+
+		// Bar length proportional to score (invert so lower score = longer bar)
+		barLength := 0
+		if maxScore > 0 {
+			barLength = int((1.0 - doc.Score/maxScore) * float64(width-30))
+		}
+		if barLength < 0 {
+			barLength = 0
+		}
+
+		// Draw bar
+		style := tcell.StyleDefault.Foreground(tcell.ColorWhite)
+		for x := 0; x < barLength && x < width-30; x++ {
+			screen.SetContent(x, row, '█', nil, style)
+		}
+
+		// Show ID and score
+		label := fmt.Sprintf(" %s (%.2f)", doc.ID, doc.Score)
+		if barLength < width-30 {
+			r.writeString(screen, barLength, row, label, style)
+		}
+	}
+
+	screen.Show()
 }
 
 func (r *Ranker) logFromApiCall(trialNum, batchNum int, message string, args ...interface{}) {
