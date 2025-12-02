@@ -1303,62 +1303,139 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 	return results
 }
 
-// perpendicularDistance calculates perpendicular distance from point to line
-func perpendicularDistance(x0, y0, x1, y1, x2, y2 float64) float64 {
-	// Line from (x1, y1) to (x2, y2)
-	// Point at (x0, y0)
-	// Formula: |ax + by + c| / sqrt(a^2 + b^2)
-	// where line is ax + by + c = 0
-
-	numerator := math.Abs((y2-y1)*x0 - (x2-x1)*y0 + x2*y1 - y2*x1)
-	denominator := math.Sqrt((y2-y1)*(y2-y1) + (x2-x1)*(x2-x1))
-
-	if denominator == 0 {
-		return 0
+// gaussianSmooth applies 1D Gaussian smoothing to a slice of values.
+// sigma controls the width of the Gaussian kernel.
+func gaussianSmooth(data []float64, sigma float64) []float64 {
+	n := len(data)
+	if n == 0 {
+		return data
 	}
 
-	return numerator / denominator
+	// Kernel radius: typically 3*sigma is sufficient to capture 99.7% of the Gaussian
+	radius := int(math.Ceil(3 * sigma))
+	if radius < 1 {
+		radius = 1
+	}
+
+	// Build Gaussian kernel
+	kernelSize := 2*radius + 1
+	kernel := make([]float64, kernelSize)
+	var kernelSum float64
+	for i := 0; i < kernelSize; i++ {
+		x := float64(i - radius)
+		kernel[i] = math.Exp(-(x * x) / (2 * sigma * sigma))
+		kernelSum += kernel[i]
+	}
+	// Normalize kernel
+	for i := range kernel {
+		kernel[i] /= kernelSum
+	}
+
+	// Apply convolution with boundary handling (extend edge values)
+	result := make([]float64, n)
+	for i := 0; i < n; i++ {
+		var sum float64
+		for k := 0; k < kernelSize; k++ {
+			// Map kernel index to data index with boundary clamping
+			dataIdx := i + (k - radius)
+			if dataIdx < 0 {
+				dataIdx = 0
+			} else if dataIdx >= n {
+				dataIdx = n - 1
+			}
+			sum += data[dataIdx] * kernel[k]
+		}
+		result[i] = sum
+	}
+
+	return result
+}
+
+// gradient calculates the numerical gradient (first derivative) of a slice.
+// Uses central differences for interior points and forward/backward differences at edges.
+func gradient(data []float64) []float64 {
+	n := len(data)
+	if n < 2 {
+		return make([]float64, n)
+	}
+
+	result := make([]float64, n)
+
+	// Forward difference at start
+	result[0] = data[1] - data[0]
+
+	// Central differences for interior
+	for i := 1; i < n-1; i++ {
+		result[i] = (data[i+1] - data[i-1]) / 2.0
+	}
+
+	// Backward difference at end
+	result[n-1] = data[n-1] - data[n-2]
+
+	return result
 }
 
 // findElbow returns the index of the elbow in a sorted list of ranked documents
-// Returns -1 if elbow cannot be determined (e.g., too few documents)
+// using curvature-based detection. It finds the point of maximum curvature
+// (global minimum of 2nd derivative) which represents the transition from
+// the steep "interesting" section to the flatter "tail" section.
+// Returns -1 if elbow cannot be determined (e.g., too few documents or flat scores).
 func findElbow(rankedDocs []RankedDocument) int {
 	n := len(rankedDocs)
 
-	// Need at least 3 documents to find an elbow
-	if n < 3 {
+	// Need at least 4 documents to find an elbow meaningfully
+	if n < 4 {
 		return -1
 	}
 
-	firstScore := rankedDocs[0].Score
-	lastScore := rankedDocs[n-1].Score
+	// Extract scores
+	scores := make([]float64, n)
+	for i, doc := range rankedDocs {
+		scores[i] = doc.Score
+	}
 
-	// If scores are identical (flat line), no elbow exists
-	if firstScore == lastScore {
+	// Check if scores are flat (all identical within epsilon)
+	const epsilon = 1e-9
+	firstScore := scores[0]
+	allFlat := true
+	for _, score := range scores {
+		if math.Abs(score-firstScore) > epsilon {
+			allFlat = false
+			break
+		}
+	}
+	if allFlat {
 		return -1
 	}
 
-	maxDist := 0.0
-	elbowIdx := -1
+	// Calculate sigma: 3% of dataset size, minimum 1.0
+	sigma := math.Max(1.0, float64(n)*0.03)
 
-	// Check each document except first and last
-	for i := 1; i < n-1; i++ {
-		dist := perpendicularDistance(
-			float64(i),
-			rankedDocs[i].Score,
-			0.0,
-			firstScore,
-			float64(n-1),
-			lastScore,
-		)
+	// Step 1: Smooth the scores
+	smoothedScores := gaussianSmooth(scores, sigma)
 
-		if dist > maxDist {
-			maxDist = dist
-			elbowIdx = i
+	// Step 2: Calculate derivatives (cascade approach)
+	// 1st derivative from smoothed scores
+	firstDeriv := gradient(smoothedScores)
+	// Smooth the 1st derivative
+	smoothedFirstDeriv := gaussianSmooth(firstDeriv, sigma)
+	// 2nd derivative from smoothed 1st derivative
+	secondDeriv := gradient(smoothedFirstDeriv)
+	// Smooth the 2nd derivative
+	smoothedSecondDeriv := gaussianSmooth(secondDeriv, sigma)
+
+	// Step 3: Find the global minimum of the 2nd derivative
+	// This is the point of maximum curvature
+	minVal := smoothedSecondDeriv[0]
+	minIdx := 0
+	for i := 1; i < n; i++ {
+		if smoothedSecondDeriv[i] < minVal {
+			minVal = smoothedSecondDeriv[i]
+			minIdx = i
 		}
 	}
 
-	return elbowIdx
+	return minIdx
 }
 
 // countStableElbows returns how many consecutive recent elbow positions are within tolerance
