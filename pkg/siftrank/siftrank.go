@@ -966,8 +966,14 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 	r.elbowCutoff = -1     // Reset cutoff
 	r.mu.Unlock()
 
+	// Shared scores for convergence detection and final ranking (all trials combined)
 	scores := make(map[string][]float64)
 	var scoresMutex sync.Mutex
+
+	// Per-trial scores for building cumulative trace snapshots
+	// Structure: trialScores[trialNumber][documentID] = []float64{scores from that trial}
+	trialScores := make(map[int]map[string][]float64)
+	var trialScoresMutex sync.Mutex
 
 	type workItem struct {
 		trialNum int
@@ -1125,12 +1131,25 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 			continue
 		}
 
-		// Thread-safe update of shared maps
+		// Thread-safe update of shared scores (for convergence detection and final ranking)
 		scoresMutex.Lock()
 		for _, rankedDoc := range result.rankedDocs {
 			scores[rankedDoc.Document.ID] = append(scores[rankedDoc.Document.ID], rankedDoc.Score)
 		}
 		scoresMutex.Unlock()
+
+		// Track scores per trial for cumulative trace snapshots
+		trialScoresMutex.Lock()
+		if trialScores[result.trialNumber] == nil {
+			trialScores[result.trialNumber] = make(map[string][]float64)
+		}
+		for _, rankedDoc := range result.rankedDocs {
+			trialScores[result.trialNumber][rankedDoc.Document.ID] = append(
+				trialScores[result.trialNumber][rankedDoc.Document.ID],
+				rankedDoc.Score,
+			)
+		}
+		trialScoresMutex.Unlock()
 
 		// Track comparisons globally (across all rounds/trials)
 		r.mu.Lock()
@@ -1191,10 +1210,24 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 			r.mu.Unlock()
 
 			// Check for convergence (this adds the current trial's elbow to the array)
+			// Note: hasConverged uses the shared 'scores' map (all trials) which is correct
 			converged := r.hasConverged(scores, result.trialNumber)
 
-			// Write trace line (after convergence check so current elbow is included)
-			if err := r.writeTraceLine(completedTrialsCount, completedTrialsCount, scores, documents); err != nil {
+			// Build cumulative scores from ALL trials that have fully completed
+			// (regardless of their trial numbers - we care about completion order, not launch order)
+			trialScoresMutex.Lock()
+			cumulativeScores := make(map[string][]float64)
+			for trialNum := range completedTrials {
+				if trialData, exists := trialScores[trialNum]; exists {
+					for docID, scoreList := range trialData {
+						cumulativeScores[docID] = append(cumulativeScores[docID], scoreList...)
+					}
+				}
+			}
+			trialScoresMutex.Unlock()
+
+			// Write trace line with cumulative scores from trials 1..N only
+			if err := r.writeTraceLine(completedTrialsCount, completedTrialsCount, cumulativeScores, documents); err != nil {
 				r.cfg.Logger.Error("Failed to write trace line", "error", err)
 			}
 
