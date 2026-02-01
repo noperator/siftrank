@@ -100,8 +100,8 @@ type Config struct {
 	MinTrials         int     `json:"min_trials"`
 
 	// Visualization
-	Observe        bool `json:"-"` // Enable live terminal visualization
-	MinimapEnabled bool `json:"-"` // Show minimap panel alongside main visualization
+	Watch     bool `json:"-"` // Enable live terminal visualization
+	NoMinimap bool `json:"-"` // Disable minimap panel (minimap shown by default)
 }
 
 func (c *Config) Validate() error {
@@ -457,7 +457,7 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 	}
 
 	// Initialize terminal visualization if enabled
-	if r.cfg.Observe {
+	if r.cfg.Watch {
 		// Redirect logger to file when in observe mode to avoid clobbering TUI
 		logFile, err := os.OpenFile("siftrank.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err == nil {
@@ -471,11 +471,11 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 		screen, err := tcell.NewScreen()
 		if err != nil {
 			r.cfg.Logger.Warn("Failed to create screen for visualization", "error", err)
-			r.cfg.Observe = false // Disable observe mode
+			r.cfg.Watch = false // Disable watch mode
 		} else {
 			if err := screen.Init(); err != nil {
 				r.cfg.Logger.Warn("Failed to initialize screen for visualization", "error", err)
-				r.cfg.Observe = false // Disable observe mode
+				r.cfg.Watch = false // Disable watch mode
 			} else {
 				r.screen = screen
 				defer func() {
@@ -942,9 +942,10 @@ Example: {"pros": "Strong connection to X. References Y explicitly.", "cons": "L
 	return &result, nil
 }
 
-func (r *Ranker) writeTraceLine(trialNum int, trialsCompleted int, scores map[string][]float64, documents []document) error {
-	if r.traceFile == nil {
-		return nil // Tracing not enabled
+func (r *Ranker) recordTrialState(trialNum int, trialsCompleted int, scores map[string][]float64, documents []document) error {
+	// Early exit if neither feature is enabled
+	if r.traceFile == nil && !r.cfg.Watch {
+		return nil
 	}
 
 	// Calculate current rankings from accumulated scores
@@ -1006,23 +1007,25 @@ func (r *Ranker) writeTraceLine(trialNum int, trialsCompleted int, scores map[st
 		r.mu.Unlock()
 	}
 
-	// Write JSON line
-	data, err := json.Marshal(trace)
-	if err != nil {
-		return fmt.Errorf("failed to marshal trace line: %w", err)
+	// File writing - only if trace enabled
+	if r.traceFile != nil {
+		data, err := json.Marshal(trace)
+		if err != nil {
+			return fmt.Errorf("failed to marshal trace line: %w", err)
+		}
+
+		if _, err := r.traceFile.Write(append(data, '\n')); err != nil {
+			return fmt.Errorf("failed to write trace line: %w", err)
+		}
+
+		// Flush to disk immediately
+		if err := r.traceFile.Sync(); err != nil {
+			return fmt.Errorf("failed to sync trace file: %w", err)
+		}
 	}
 
-	if _, err := r.traceFile.Write(append(data, '\n')); err != nil {
-		return fmt.Errorf("failed to write trace line: %w", err)
-	}
-
-	// Flush to disk immediately
-	if err := r.traceFile.Sync(); err != nil {
-		return fmt.Errorf("failed to sync trace file: %w", err)
-	}
-
-	// Render visualization if observe mode enabled
-	if r.cfg.Observe && r.screen != nil {
+	// Visualization - only if watch enabled
+	if r.cfg.Watch && r.screen != nil {
 		r.renderVisualization(rankings, r.round, trialNum)
 	}
 
@@ -1048,7 +1051,7 @@ func (r *Ranker) renderVisualization(rankings []traceDocument, round, trial int)
 	}
 
 	// Route to appropriate rendering function
-	if !r.cfg.MinimapEnabled {
+	if r.cfg.NoMinimap {
 		r.renderFullWidth(screen, rankings, round, trial)
 	} else {
 		r.renderWithMinimap(screen, rankings, round, trial)
@@ -1533,9 +1536,9 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 			}
 			trialScoresMutex.Unlock()
 
-			// Write trace line with cumulative scores from trials 1..N only
-			if err := r.writeTraceLine(completedTrialsCount, completedTrialsCount, cumulativeScores, documents); err != nil {
-				r.cfg.Logger.Error("Failed to write trace line", "error", err)
+			// Record trial state with cumulative scores from trials 1..N only
+			if err := r.recordTrialState(completedTrialsCount, completedTrialsCount, cumulativeScores, documents); err != nil {
+				r.cfg.Logger.Error("Failed to record trial state", "error", err)
 			}
 
 			// Signal workers to stop if converged
