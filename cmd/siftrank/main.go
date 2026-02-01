@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -46,6 +47,9 @@ var (
 	debug     bool
 	relevance bool
 	traceFile string
+	watch     bool
+	noMinimap bool
+	logFile   string
 )
 
 var rootCmd = &cobra.Command{
@@ -103,6 +107,9 @@ func init() {
 	rootCmd.Flags().BoolVarP(&debug, "debug", "d", false, "enable debug logging")
 	rootCmd.Flags().BoolVarP(&relevance, "relevance", "r", false, "post-process each item by providing relevance justification (skips round 1)")
 	rootCmd.Flags().StringVar(&traceFile, "trace", "", "trace file path for streaming trial execution state (JSON Lines format)")
+	rootCmd.Flags().BoolVar(&watch, "watch", false, "enable live terminal visualization (logs suppressed unless --log is specified)")
+	rootCmd.Flags().BoolVar(&noMinimap, "no-minimap", false, "disable minimap panel in watch mode")
+	rootCmd.Flags().StringVar(&logFile, "log", "", "write logs to file instead of stderr")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -111,7 +118,23 @@ func run(cmd *cobra.Command, args []string) error {
 	if debug {
 		logLevel = slog.LevelDebug
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+
+	var logWriter *os.File
+	var logOutput io.Writer = os.Stderr
+	if logFile != "" {
+		var err error
+		logWriter, err = os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open log file: %w", err)
+		}
+		defer logWriter.Close()
+		logOutput = logWriter
+	} else if watch {
+		// Suppress logs when --watch is used without --log
+		logOutput = io.Discard
+	}
+
+	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{
 		Level: logLevel,
 	})).With("component", "siftrank-cli")
 
@@ -147,7 +170,10 @@ func run(cmd *cobra.Command, args []string) error {
 		TracePath:       traceFile,
 		Relevance:       relevance,
 		Effort:          effort,
-		LogLevel:        logLevel,
+		LogLevel:  logLevel,
+		Logger:    logger,
+		Watch:     watch,
+		NoMinimap: noMinimap,
 
 		EnableConvergence: !noConverge,
 		ElbowTolerance:    elbowTolerance,
