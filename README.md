@@ -40,29 +40,42 @@ Set your `OPENAI_API_KEY` environment variable.
 ```
 siftrank -h
 
-Flags:
+Options:
+  -f, --file string     input file (required)
+  -m, --model string    OpenAI model name (default "gpt-4o-mini")
+  -o, --output string   JSON output file
+  -p, --prompt string   initial prompt (prefix with @ to use a file)
+  -r, --relevance       post-process each item by providing relevance justification (skips round 1)
+
+Visualization:
+      --no-minimap   disable minimap panel in watch mode
+      --watch        enable live terminal visualization (logs suppressed unless --log is specified)
+
+Debug:
+  -d, --debug          enable debug logging
+      --dry-run        log API calls without making them
+      --log string     write logs to file instead of stderr
+      --trace string   trace file path for streaming trial execution state (JSON Lines format)
+
+Advanced:
   -u, --base-url string         OpenAI API base URL (for compatible APIs like vLLM)
   -b, --batch-size int          number of items per batch (default 10)
   -c, --concurrency int         max concurrent LLM calls across all trials (default 50)
-  -d, --debug                   enable debug logging
-      --dry-run                 log API calls without making them
   -e, --effort string           reasoning effort level: none, minimal, low, medium, high
+      --elbow-method string     elbow detection method: curvature (default), perpendicular (default "curvature")
       --elbow-tolerance float   elbow position tolerance (0.05 = 5%) (default 0.05)
       --encoding string         tokenizer encoding (default "o200k_base")
-  -f, --file string             input file (required)
-  -h, --help                    help for siftrank
       --json                    force JSON parsing regardless of file extension
       --max-trials int          maximum number of ranking trials (default 50)
       --min-trials int          minimum trials before checking convergence (default 5)
-  -m, --model string            OpenAI model name (default "gpt-4o-mini")
       --no-converge             disable early stopping based on convergence
-  -o, --output string           JSON output file
-  -p, --prompt string           initial prompt (prefix with @ to use a file)
       --ratio float             refinement ratio (0.0-1.0, e.g. 0.5 = top 50%) (default 0.5)
-  -r, --relevance               post-process each item by providing relevance justification (skips round 1)
       --stable-trials int       stable trials required for convergence (default 5)
       --template string         template for each object (prefix with @ to use a file) (default "{{.Data}}")
       --tokens int              max tokens per batch (default 128000)
+
+Flags:
+  -h, --help   help for siftrank
 ```
 
 Compares 100 [sentences](https://github.com/noperator/siftrank/blob/main/testdata/sentences.txt) in 7 seconds.
@@ -170,7 +183,6 @@ I released the prototype of this tool, Raink, while at Bishop Fox. See the origi
 ### To-do
 
 - [ ] add python bindings?
-- [ ] add visualization
 - [ ] allow specifying an input _directory_ (where each file is distinct object)
 - [ ] clarify when prompt included in token estimate
 - [ ] factor LLM calls out into a separate package
@@ -181,6 +193,7 @@ I released the prototype of this tool, Raink, while at Bishop Fox. See the origi
 
 <details><summary>Completed</summary>
 
+- [x] add visualization
 - [x] support reasoning effort
 - [x] add blog link
 - [x] add parameter for refinement ratio
