@@ -1145,7 +1145,7 @@ func (r *Ranker) renderMinimap(screen tcell.Screen, rankings []traceDocument, ro
 
 	// Render each row
 	for row := 0; row < displayHeight; row++ {
-		y := row + 2 // Offset for header
+		y := row + 3 // Align with main display (which starts data at row 3)
 		if y >= height {
 			break
 		}
