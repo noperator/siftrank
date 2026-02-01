@@ -11,6 +11,7 @@ import (
 	"github.com/noperator/siftrank/pkg/siftrank"
 	"github.com/openai/openai-go"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -53,24 +54,64 @@ var (
 	logFile   string
 )
 
+// setFlagGroup annotates flags with a group name for organized help output.
+func setFlagGroup(cmd *cobra.Command, group string, names ...string) {
+	for _, name := range names {
+		f := cmd.Flags().Lookup(name)
+		if f != nil {
+			if f.Annotations == nil {
+				f.Annotations = make(map[string][]string)
+			}
+			f.Annotations["group"] = []string{group}
+		}
+	}
+}
+
+// FlagsInGroup returns a FlagSet containing only flags that belong to the specified group.
+func FlagsInGroup(cmd *cobra.Command, group string) *pflag.FlagSet {
+	result := pflag.NewFlagSet("grouped", pflag.ContinueOnError)
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if g, ok := f.Annotations["group"]; ok && len(g) > 0 && g[0] == group {
+			result.AddFlag(f)
+		}
+	})
+	return result
+}
+
+// FilterFlags returns a FlagSet containing only flags that don't belong to any group (plus help).
+func FilterFlags(cmd *cobra.Command) *pflag.FlagSet {
+	result := pflag.NewFlagSet("ungrouped", pflag.ContinueOnError)
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if _, ok := f.Annotations["group"]; !ok {
+			result.AddFlag(f)
+		}
+	})
+	return result
+}
+
+const usageTemplate = `Usage:
+  {{.UseLine}}
+
+Options:
+{{FlagsInGroup . "options" | FlagUsages | trimTrailingWhitespaces}}
+
+Visualization:
+{{FlagsInGroup . "visualization" | FlagUsages | trimTrailingWhitespaces}}
+
+Debug:
+{{FlagsInGroup . "debug" | FlagUsages | trimTrailingWhitespaces}}
+
+Advanced:
+{{FlagsInGroup . "advanced" | FlagUsages | trimTrailingWhitespaces}}
+
+Flags:
+{{FilterFlags . | FlagUsages | trimTrailingWhitespaces}}
+`
+
 var rootCmd = &cobra.Command{
 	Use:   "siftrank",
 	Short: "Use LLMs for document ranking via the SiftRank algorithm",
-	Long: `siftrank uses the SiftRank algorithm to rank documents using large language models.
-
-SiftRank employs multiple randomized trials with pairwise comparisons to create
-stable, reliable rankings even with non-deterministic LLM outputs.
-
-Examples:
-  # Rank sentences by relevance to "time"
-  siftrank -f sentences.txt -p "Rank by relevance to time"
-
-  # Rank JSON objects using a template
-  siftrank -f data.json --template "{{.title}}: {{.description}}"
-
-  # Use more trials for higher confidence
-  siftrank -f items.txt -p "Best to worst" --max-trials 100`,
-	RunE: run,
+	RunE:  run,
 }
 
 func init() {
@@ -112,6 +153,22 @@ func init() {
 	rootCmd.Flags().BoolVar(&watch, "watch", false, "enable live terminal visualization (logs suppressed unless --log is specified)")
 	rootCmd.Flags().BoolVar(&noMinimap, "no-minimap", false, "disable minimap panel in watch mode")
 	rootCmd.Flags().StringVar(&logFile, "log", "", "write logs to file instead of stderr")
+
+	// Register template functions for flag grouping
+	cobra.AddTemplateFunc("FlagsInGroup", FlagsInGroup)
+	cobra.AddTemplateFunc("FilterFlags", FilterFlags)
+	cobra.AddTemplateFunc("FlagUsages", func(fs *pflag.FlagSet) string {
+		return fs.FlagUsages()
+	})
+
+	// Set custom usage template
+	rootCmd.SetUsageTemplate(usageTemplate)
+
+	// Organize flags into groups
+	setFlagGroup(rootCmd, "options", "file", "prompt", "output", "model", "relevance")
+	setFlagGroup(rootCmd, "visualization", "watch", "no-minimap")
+	setFlagGroup(rootCmd, "debug", "trace", "debug", "dry-run", "log")
+	setFlagGroup(rootCmd, "advanced", "template", "json", "base-url", "encoding", "effort", "tokens", "batch-size", "max-trials", "concurrency", "ratio", "no-converge", "elbow-tolerance", "stable-trials", "min-trials", "elbow-method")
 }
 
 func run(cmd *cobra.Command, args []string) error {
