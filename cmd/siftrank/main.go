@@ -41,6 +41,7 @@ var (
 	elbowTolerance float64
 	stableTrials   int
 	minTrials      int
+	elbowMethod    string
 
 	// Execution params
 	dryRun    bool
@@ -101,6 +102,7 @@ func init() {
 	rootCmd.Flags().Float64Var(&elbowTolerance, "elbow-tolerance", 0.05, "elbow position tolerance (0.05 = 5%)")
 	rootCmd.Flags().IntVar(&stableTrials, "stable-trials", 5, "stable trials required for convergence")
 	rootCmd.Flags().IntVar(&minTrials, "min-trials", 5, "minimum trials before checking convergence")
+	rootCmd.Flags().StringVar(&elbowMethod, "elbow-method", "curvature", "elbow detection method: curvature (default), perpendicular")
 
 	// Execution flags
 	rootCmd.Flags().BoolVar(&dryRun, "dry-run", false, "log API calls without making them")
@@ -179,6 +181,7 @@ func run(cmd *cobra.Command, args []string) error {
 		ElbowTolerance:    elbowTolerance,
 		StableTrials:      stableTrials,
 		MinTrials:         minTrials,
+		ElbowMethod:       elbowMethod,
 	}
 
 	// Create ranker

@@ -98,6 +98,7 @@ type Config struct {
 	ElbowTolerance    float64 `json:"elbow_tolerance"`
 	StableTrials      int     `json:"stable_trials"`
 	MinTrials         int     `json:"min_trials"`
+	ElbowMethod       string  `json:"elbow_method"` // "curvature" (default) or "perpendicular"
 
 	// Visualization
 	Watch     bool `json:"-"` // Enable live terminal visualization
@@ -136,6 +137,9 @@ func (c *Config) Validate() error {
 		if c.MinTrials < 2 {
 			return fmt.Errorf("minimum trials must be at least 2")
 		}
+	}
+	if c.ElbowMethod != "" && c.ElbowMethod != "curvature" && c.ElbowMethod != "perpendicular" {
+		return fmt.Errorf("elbow method must be 'curvature' or 'perpendicular', got '%s'", c.ElbowMethod)
 	}
 	return nil
 }
@@ -1603,6 +1607,78 @@ func (r *Ranker) shuffleBatchRank(documents []document) []RankedDocument {
 	return results
 }
 
+// perpendicularDistance calculates perpendicular distance from point to line
+func perpendicularDistance(x0, y0, x1, y1, x2, y2 float64) float64 {
+	// Line from (x1, y1) to (x2, y2)
+	// Point at (x0, y0)
+	// Formula: |ax + by + c| / sqrt(a^2 + b^2)
+	// where line is ax + by + c = 0
+
+	numerator := math.Abs((y2-y1)*x0 - (x2-x1)*y0 + x2*y1 - y2*x1)
+	denominator := math.Sqrt((y2-y1)*(y2-y1) + (x2-x1)*(x2-x1))
+
+	if denominator == 0 {
+		return 0
+	}
+
+	return numerator / denominator
+}
+
+// findElbowPerpendicular returns the index of the elbow using perpendicular distance method.
+// Returns -1 if elbow cannot be determined (e.g., too few documents).
+func findElbowPerpendicular(rankedDocs []RankedDocument) int {
+	n := len(rankedDocs)
+
+	// Need at least 3 documents to find an elbow
+	if n < 3 {
+		return -1
+	}
+
+	firstScore := rankedDocs[0].Score
+	lastScore := rankedDocs[n-1].Score
+
+	// If scores are identical (flat line), no elbow exists
+	if firstScore == lastScore {
+		return -1
+	}
+
+	maxDist := 0.0
+	elbowIdx := -1
+
+	// Check each document except first and last
+	for i := 1; i < n-1; i++ {
+		dist := perpendicularDistance(
+			float64(i),
+			rankedDocs[i].Score,
+			0.0,
+			firstScore,
+			float64(n-1),
+			lastScore,
+		)
+
+		if dist > maxDist {
+			maxDist = dist
+			elbowIdx = i
+		}
+	}
+
+	return elbowIdx
+}
+
+// findElbow dispatches to the appropriate elbow detection method based on the method name.
+// Valid methods: "curvature" (default), "perpendicular".
+func findElbow(rankedDocs []RankedDocument, method string) int {
+	switch method {
+	case "perpendicular":
+		return findElbowPerpendicular(rankedDocs)
+	case "curvature", "":
+		return findElbowCurvature(rankedDocs)
+	default:
+		// Shouldn't happen if config validation is correct, but default to curvature
+		return findElbowCurvature(rankedDocs)
+	}
+}
+
 // gaussianSmooth applies 1D Gaussian smoothing to a slice of values.
 // sigma controls the width of the Gaussian kernel.
 func gaussianSmooth(data []float64, sigma float64) []float64 {
@@ -1675,12 +1751,12 @@ func gradient(data []float64) []float64 {
 	return result
 }
 
-// findElbow returns the index of the elbow in a sorted list of ranked documents
+// findElbowCurvature returns the index of the elbow in a sorted list of ranked documents
 // using curvature-based detection. It finds the point of maximum curvature
 // (global minimum of 2nd derivative) which represents the transition from
 // the steep "interesting" section to the flatter "tail" section.
 // Returns -1 if elbow cannot be determined (e.g., too few documents or flat scores).
-func findElbow(rankedDocs []RankedDocument) int {
+func findElbowCurvature(rankedDocs []RankedDocument) int {
 	n := len(rankedDocs)
 
 	// Need at least 4 documents to find an elbow meaningfully
@@ -1871,7 +1947,7 @@ func (r *Ranker) hasConverged(scores map[string][]float64, completedTrialNum int
 	var elbowStable bool
 	var actualTolerance int
 
-	elbowPos := findElbow(currentRankings)
+	elbowPos := findElbow(currentRankings, r.cfg.ElbowMethod)
 	if elbowPos != -1 {
 		// Store elbow position
 		r.mu.Lock()
