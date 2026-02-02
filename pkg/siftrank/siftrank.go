@@ -83,48 +83,84 @@ var (
 	}
 )
 
-/*
-When deciding whether a value belongs in Config or Ranker structs, consider the following:
-- Does this value change during operation? → Ranker if yes, Config if no
-- Should users be able to configure this directly? → Config if yes, Ranker if no
-- Is this derived from other configuration? → Usually Ranker
-- Does this require initialization or cleanup? → Usually Ranker
-- Is this part of the public API? → Config if yes, Ranker if no
-*/
-
+// Config contains all configuration options for a Ranker.
+// Use NewConfig() to get sensible defaults, then override as needed.
 type Config struct {
-	InitialPrompt   string       `json:"initial_prompt"`
-	BatchSize       int          `json:"batch_size"`
-	NumTrials       int          `json:"num_trials"`
-	Concurrency     int          `json:"concurrency"`
-	RefinementRatio float64      `json:"refinement_ratio"`
-	BatchTokens     int          `json:"batch_tokens"`
-	DryRun          bool         `json:"-"`
-	TracePath       string       `json:"-"`
-	Relevance       bool         `json:"relevance"`
-	LogLevel        slog.Level   `json:"-"` // Defaults to 0 (slog.LevelInfo)
-	Logger          *slog.Logger `json:"-"`
+	// InitialPrompt is the ranking instruction sent to the LLM.
+	// Example: "Rank these items by relevance to machine learning"
+	InitialPrompt string `json:"initial_prompt"`
 
-	// Convergence detection
-	EnableConvergence bool    `json:"enable_convergence"`
-	ElbowTolerance    float64 `json:"elbow_tolerance"`
-	StableTrials      int     `json:"stable_trials"`
-	MinTrials         int     `json:"min_trials"`
-	ElbowMethod ElbowMethod `json:"elbow_method"` // ElbowMethodCurvature (default) or ElbowMethodPerpendicular
+	// BatchSize is the number of documents compared per LLM call.
+	// Smaller batches = more accurate, larger batches = faster.
+	BatchSize int `json:"batch_size"`
 
-	// LLM configuration
-	LLMProvider LLMProvider `json:"-"` // Optional: if nil, creates default OpenAI provider
+	// NumTrials is the maximum number of ranking trials to run.
+	// More trials improve stability but increase cost/time.
+	NumTrials int `json:"num_trials"`
 
-	// OpenAI defaults (used only if LLMProvider is nil)
-	OpenAIModel  openai.ChatModel `json:"openai_model"`
-	OpenAIKey    string           `json:"-"`
-	OpenAIAPIURL string           `json:"-"`
-	Encoding     string           `json:"encoding"`
-	Effort       string           `json:"effort"`
+	// Concurrency is the maximum concurrent LLM calls across all trials.
+	Concurrency int `json:"concurrency"`
 
-	// Visualization
-	Watch     bool `json:"-"` // Enable live terminal visualization
-	NoMinimap bool `json:"-"` // Disable minimap panel (minimap shown by default)
+	// RefinementRatio controls how many top documents are re-ranked (0.0-1.0).
+	// 0.5 means top 50% are refined in subsequent rounds.
+	RefinementRatio float64 `json:"refinement_ratio"`
+
+	// BatchTokens is the maximum tokens per batch (for batch sizing).
+	BatchTokens int `json:"batch_tokens"`
+
+	// DryRun logs API calls without making them (for testing).
+	DryRun bool `json:"-"`
+
+	// TracePath writes JSON Lines trace output to this file path.
+	// Empty string disables tracing.
+	TracePath string `json:"-"`
+
+	// Relevance enables post-processing to generate pros/cons for each item.
+	Relevance bool `json:"relevance"`
+
+	// LogLevel controls logging verbosity (slog.LevelInfo, slog.LevelDebug, etc).
+	LogLevel slog.Level `json:"-"`
+
+	// Logger is the structured logger for output. If nil, a default is created.
+	Logger *slog.Logger `json:"-"`
+
+	// EnableConvergence enables early stopping when rankings stabilize.
+	EnableConvergence bool `json:"enable_convergence"`
+
+	// ElbowTolerance is the allowed variance in elbow position (0.05 = 5%).
+	ElbowTolerance float64 `json:"elbow_tolerance"`
+
+	// StableTrials is how many consecutive trials must agree for convergence.
+	StableTrials int `json:"stable_trials"`
+
+	// MinTrials is the minimum trials before checking convergence.
+	MinTrials int `json:"min_trials"`
+
+	// ElbowMethod selects the algorithm for elbow detection.
+	// ElbowMethodCurvature (default) or ElbowMethodPerpendicular.
+	ElbowMethod ElbowMethod `json:"elbow_method"`
+
+	// LLMProvider handles LLM calls. If nil, creates default OpenAI provider.
+	LLMProvider LLMProvider `json:"-"`
+
+	// OpenAI configuration (used only if LLMProvider is nil)
+	OpenAIModel  openai.ChatModel `json:"openai_model"` // Model name (e.g., "gpt-4o-mini")
+	OpenAIKey    string           `json:"-"`            // API key (required if LLMProvider is nil)
+	OpenAIAPIURL string           `json:"-"`            // Base URL (for compatible APIs like vLLM)
+
+	// Encoding is the tokenizer encoding name (e.g., "o200k_base").
+	// Used only by the default OpenAI provider for accurate token counting.
+	// Custom LLMProvider implementations can ignore this field.
+	Encoding string `json:"encoding"`
+
+	// Effort is the reasoning effort level: none, minimal, low, medium, high.
+	Effort string `json:"effort"`
+
+	// Watch enables live terminal visualization (CLI only).
+	Watch bool `json:"-"`
+
+	// NoMinimap disables the minimap panel in watch mode (CLI only).
+	NoMinimap bool `json:"-"`
 }
 
 func (c *Config) Validate() error {
@@ -475,7 +511,20 @@ func ShortDeterministicID(input string, length int) string {
 	return filtered[:length]
 }
 
-// RankFromFile ranks documents loaded from a file with optional template.
+// RankFromFile ranks documents loaded from a file.
+//
+// Parameters:
+//   - filePath: Path to input file (text or JSON)
+//   - templateData: Go template for formatting each item. For text files,
+//     use {{.Data}} to reference each line. For JSON, use field names like
+//     {{.title}}. Prefix with @ to load template from file (e.g., "@template.txt").
+//   - forceJSON: If true, parse as JSON regardless of file extension.
+//
+// For text files, each non-empty line becomes a document.
+// For JSON files, expects an array of objects.
+//
+// Returns ranked documents sorted by score (lower = better), or error if
+// ranking fails (e.g., LLM auth error, invalid input).
 func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bool) ([]*RankedDocument, error) {
 	documents, err := r.loadDocumentsFromFile(filePath, templateData, forceJSON)
 	if err != nil {
@@ -500,9 +549,14 @@ func (r *Ranker) RankFromFile(filePath string, templateData string, forceJSON bo
 }
 
 // RankFromReader ranks documents read from an io.Reader.
-// For text input, each line is treated as a document.
-// For JSON input (isJSON=true), expects a JSON array of objects.
-// templateData uses Go template syntax; for text input, use {{.Data}} to reference each line.
+//
+// Parameters:
+//   - reader: Source of input data
+//   - templateData: Go template for formatting each item (see RankFromFile)
+//   - isJSON: If true, parse as JSON array; if false, parse as text lines.
+//
+// Returns ranked documents sorted by score (lower = better), or error if
+// ranking fails.
 func (r *Ranker) RankFromReader(reader io.Reader, templateData string, isJSON bool) ([]*RankedDocument, error) {
 	documents, err := r.loadDocumentsFromReader(reader, templateData, isJSON)
 	if err != nil {

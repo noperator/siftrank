@@ -6,31 +6,33 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
-// LLMProvider handles network-level LLM interactions.
-// The provider handles network retries (rate limits, timeouts, server errors)
-// but makes NO guarantees about response format. The response might be:
-// - Valid JSON
-// - JSON wrapped in markdown (```json ... ```)
-// - Invalid JSON
-// - Plain text
-// The caller is responsible for all parsing and validation.
+// LLMProvider handles LLM interactions for ranking operations.
+// Implementations handle network-level concerns (retries, rate limits, timeouts)
+// but make no guarantees about response format.
+//
+// Complete may be called concurrently from multiple goroutines.
+// Implementations must be safe for concurrent use.
 type LLMProvider interface {
 	// Complete sends a prompt and returns the raw LLM response.
-	// Main input: prompt string
-	// Main output: response string
-	// opts: optional parameters and metadata (can be nil)
 	//
-	// ctx: for cancellation/timeouts
-	// prompt: the full prompt text
-	// opts: optional completion options (schema, model params, outputs)
+	// Parameters:
+	//   - ctx: Context for cancellation/timeouts
+	//   - prompt: The full prompt text to send
+	//   - opts: Optional parameters and metadata (may be nil)
 	//
-	// Returns: raw response string, error
-	// Error only for unrecoverable network issues (bad auth, context cancelled)
+	// Returns error only for unrecoverable issues (bad auth, context cancelled).
+	// Transient errors (rate limits, timeouts, 5xx) should be retried internally.
 	Complete(ctx context.Context, prompt string, opts *CompletionOptions) (string, error)
 }
 
 // TokenEstimator is an optional interface that LLMProviders can implement
-// to provide accurate token estimation for batch sizing.
+// to provide accurate token counting for batch sizing.
+//
+// EstimateTokens may be called concurrently from multiple goroutines.
+// Implementations must be safe for concurrent use.
+//
+// If an LLMProvider does not implement TokenEstimator, siftrank falls back
+// to a rough approximation (~4 characters per token).
 type TokenEstimator interface {
 	EstimateTokens(text string) int
 }
@@ -40,28 +42,37 @@ type TokenEstimator interface {
 type CompletionOptions struct {
 	// --- INPUTS (caller sets these before calling Complete) ---
 
-	// Schema for structured output (hint for constrained decoding)
+	// Schema for structured output (JSON schema for constrained decoding).
+	// If nil, no schema constraint is applied.
 	Schema interface{}
 
-	// Temperature for sampling (0.0 to 2.0, provider-specific)
+	// Temperature for sampling (0.0 to 2.0, provider-specific).
+	// Optional; if nil, provider uses its default.
 	Temperature *float64
 
-	// MaxTokens for response length limit
+	// MaxTokens limits response length.
+	// Optional; if nil, provider uses its default.
 	MaxTokens *int
 
 	// --- OUTPUTS (provider populates these during Complete) ---
 
-	// Usage contains token consumption information
+	// Usage contains token consumption after the call completes.
 	Usage Usage
 
-	// ModelUsed is the actual model that generated the response
+	// ModelUsed is the actual model that generated the response.
+	// May differ from requested model if provider substitutes.
 	ModelUsed string
 
-	// FinishReason indicates why generation stopped
-	// Common values: "stop", "length", "content_filter"
+	// FinishReason indicates why generation stopped.
+	// Common values: "stop" (natural end), "length" (hit max tokens),
+	// "content_filter" (blocked by safety filter).
+	// Optional; may be empty if provider doesn't report it.
+	// Informational only; siftrank does not act on this value.
 	FinishReason string
 
-	// RequestID from the provider for debugging/logging
+	// RequestID is the provider's identifier for this request.
+	// Optional; may be empty if provider doesn't report it.
+	// Useful for debugging or support requests with the provider.
 	RequestID string
 }
 
