@@ -126,24 +126,24 @@ func init() {
 	rootCmd.Flags().StringVar(&inputTemplate, "template", "{{.Data}}", "template for each object (prefix with @ to use a file)")
 
 	// Algorithm parameter flags
-	rootCmd.Flags().IntVarP(&batchSize, "batch-size", "b", 10, "number of items per batch")
-	rootCmd.Flags().IntVar(&maxTrials, "max-trials", 50, "maximum number of ranking trials")
-	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 50, "max concurrent LLM calls across all trials")
-	rootCmd.Flags().IntVar(&batchTokens, "tokens", 128000, "max tokens per batch")
-	rootCmd.Flags().Float64Var(&refinementRatio, "ratio", 0.5, "refinement ratio (0.0-1.0, e.g. 0.5 = top 50%)")
+	rootCmd.Flags().IntVarP(&batchSize, "batch-size", "b", siftrank.DefaultBatchSize, "number of items per batch")
+	rootCmd.Flags().IntVar(&maxTrials, "max-trials", siftrank.DefaultNumTrials, "maximum number of ranking trials")
+	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", siftrank.DefaultConcurrency, "max concurrent LLM calls across all trials")
+	rootCmd.Flags().IntVar(&batchTokens, "tokens", siftrank.DefaultBatchTokens, "max tokens per batch")
+	rootCmd.Flags().Float64Var(&refinementRatio, "ratio", siftrank.DefaultRefinementRatio, "refinement ratio (0.0-1.0, e.g. 0.5 = top 50%)")
 
 	// Model parameter flags
 	rootCmd.Flags().StringVarP(&oaiModel, "model", "m", openai.ChatModelGPT4oMini, "OpenAI model name")
 	rootCmd.Flags().StringVarP(&oaiURL, "base-url", "u", "", "OpenAI API base URL (for compatible APIs like vLLM)")
-	rootCmd.Flags().StringVar(&encoding, "encoding", "o200k_base", "tokenizer encoding")
+	rootCmd.Flags().StringVar(&encoding, "encoding", siftrank.DefaultEncoding, "tokenizer encoding")
 	rootCmd.Flags().StringVarP(&effort, "effort", "e", "", "reasoning effort level: none, minimal, low, medium, high")
 
 	// Convergence parameter flags
 	rootCmd.Flags().BoolVar(&noConverge, "no-converge", false, "disable early stopping based on convergence")
-	rootCmd.Flags().Float64Var(&elbowTolerance, "elbow-tolerance", 0.05, "elbow position tolerance (0.05 = 5%)")
-	rootCmd.Flags().IntVar(&stableTrials, "stable-trials", 5, "stable trials required for convergence")
-	rootCmd.Flags().IntVar(&minTrials, "min-trials", 5, "minimum trials before checking convergence")
-	rootCmd.Flags().StringVar(&elbowMethod, "elbow-method", "curvature", "elbow detection method: curvature (default), perpendicular")
+	rootCmd.Flags().Float64Var(&elbowTolerance, "elbow-tolerance", siftrank.DefaultElbowTolerance, "elbow position tolerance (0.05 = 5%)")
+	rootCmd.Flags().IntVar(&stableTrials, "stable-trials", siftrank.DefaultStableTrials, "stable trials required for convergence")
+	rootCmd.Flags().IntVar(&minTrials, "min-trials", siftrank.DefaultMinTrials, "minimum trials before checking convergence")
+	rootCmd.Flags().StringVar(&elbowMethod, "elbow-method", string(siftrank.DefaultElbowMethod), "elbow detection method: curvature (default), perpendicular")
 
 	// Execution flags
 	rootCmd.Flags().BoolVar(&dryRun, "dry-run", false, "log API calls without making them")

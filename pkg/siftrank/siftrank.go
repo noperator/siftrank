@@ -40,6 +40,21 @@ const (
 	ElbowMethodPerpendicular ElbowMethod = "perpendicular"
 )
 
+// Default configuration values
+const (
+	DefaultBatchSize         = 10
+	DefaultNumTrials         = 50
+	DefaultConcurrency       = 50
+	DefaultBatchTokens       = 128000
+	DefaultRefinementRatio   = 0.5
+	DefaultEncoding          = "o200k_base"
+	DefaultElbowTolerance    = 0.05
+	DefaultStableTrials      = 5
+	DefaultMinTrials         = 5
+	DefaultElbowMethod       = ElbowMethodCurvature
+	DefaultEnableConvergence = true
+)
+
 // Word lists for generating memorable IDs
 var (
 	adjectives = []string{
@@ -156,17 +171,17 @@ func (c *Config) Validate() error {
 // Callers should set at minimum: InitialPrompt and OpenAIKey (or LLMProvider).
 func NewConfig() *Config {
 	return &Config{
-		BatchSize:         10,
-		NumTrials:         50,
-		Concurrency:       50,
-		BatchTokens:       128000,
-		RefinementRatio:   0.5,
-		Encoding:          "o200k_base",
-		ElbowMethod:       ElbowMethodCurvature,
-		ElbowTolerance:    0.05,
-		StableTrials:      5,
-		MinTrials:         5,
-		EnableConvergence: true,
+		BatchSize:         DefaultBatchSize,
+		NumTrials:         DefaultNumTrials,
+		Concurrency:       DefaultConcurrency,
+		BatchTokens:       DefaultBatchTokens,
+		RefinementRatio:   DefaultRefinementRatio,
+		Encoding:          DefaultEncoding,
+		ElbowMethod:       DefaultElbowMethod,
+		ElbowTolerance:    DefaultElbowTolerance,
+		StableTrials:      DefaultStableTrials,
+		MinTrials:         DefaultMinTrials,
+		EnableConvergence: DefaultEnableConvergence,
 	}
 }
 
