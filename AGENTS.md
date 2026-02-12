@@ -95,3 +95,42 @@ bd update siftrank-1 --status in_progress
 # Complete
 bd close siftrank-1 --reason "Replaced math/rand with crypto/rand in pkg/openai/client.go"
 ```
+
+## Git Workflow
+
+When working on **Siftrank** tickets using Git, follow these steps:
+
+1. **Create a Feature Branch:**
+   - Name your branch using the format `<type>/siftrank-<id>-<description>`.
+     ```bash
+     git checkout -b feat/siftrank-123-add-login
+     ```
+
+2. **Update Beads Ticket Status:**
+   - Change the ticket status to `in_progress`:
+     ```bash
+     bd update siftrank-123 --status in_progress
+     ```
+
+3. **Make Changes and Commit:**
+   - Commit your changes with a clear message format:
+     ```bash
+     git commit -m "fix: resolve login issue
+
+Refs: siftrank-123"
+     ```
+
+4. **Push Branch and Create PR:**
+   - Push your branch to the remote repository and create a Pull Request (PR).
+     ```bash
+     git push origin feat/siftrank-123-add-login
+     ```
+
+5. **Never Merge PRs:**
+   - Only humans merge PRs. Agents create PRs and wait for review.
+
+6. **Work on Other Tickets:**
+   - While waiting for review, switch to other unblocked tickets.
+     ```bash
+     bd ready
+     ```
