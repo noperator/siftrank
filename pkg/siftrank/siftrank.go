@@ -2458,19 +2458,22 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 		// This also fixes case-insensitive matches in place
 		missingIDs, err := validateIDs(&rankedResponse, inputIDs)
 		if err != nil {
-			lastAttempt = &previousAttempt{
-				response: jsonResponse,
-				problem:  fmt.Sprintf("You're missing these IDs: [%s]. Please include ALL IDs.", strings.Join(missingIDs, ", ")),
-			}
-
 			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage,
-					fmt.Errorf("missing IDs after %d attempts: %v", maxRetries, missingIDs)
-			}
+				// Tolerate missing IDs by appending them at the end (worst rank)
+				rankedResponse.Documents = append(rankedResponse.Documents, missingIDs...)
+				r.cfg.Logger.Warn("Appending missing IDs at worst rank after max retries",
+					"trial", trialNumber, "batch", batchNumber,
+					"missing", missingIDs)
+			} else {
+				lastAttempt = &previousAttempt{
+					response: jsonResponse,
+					problem:  fmt.Sprintf("You're missing these IDs: [%s]. Please include ALL IDs.", strings.Join(missingIDs, ", ")),
+				}
 
-			r.logFromApiCall(trialNumber, batchNumber,
-				"Missing IDs, retrying (attempt %d): %v", attempt+1, missingIDs)
-			continue
+				r.logFromApiCall(trialNumber, batchNumber,
+					"Missing IDs, retrying (attempt %d): %v", attempt+1, missingIDs)
+				continue
+			}
 		}
 
 		// Translate memorable IDs back (business logic)
