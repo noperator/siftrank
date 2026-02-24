@@ -1546,6 +1546,12 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 	}
 	trialStatsMap := make(map[int]*trialStats) // trial number -> stats
 
+	// Per-round comparison tracking — local to this call, not propagated globally
+	roundComparisons := make(map[string]int)
+	for _, doc := range documents {
+		roundComparisons[doc.ID] = 0
+	}
+
 	// Track fatal errors that should propagate to callers
 	var fatalErr error
 
@@ -1628,6 +1634,11 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 			// Track successful batch stats
 			stats.numBatches++
 			completedBatches[result.trialNumber]++
+
+			// Track per-round comparisons for zero-exposure detection
+			for _, rankedDoc := range result.rankedDocs {
+				roundComparisons[rankedDoc.Document.ID]++
+			}
 		}
 
 		// Always increment processedBatches (dropped or successful)
@@ -1660,6 +1671,22 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 		// Check for convergence (this adds the current trial's elbow to the array)
 		// Note: hasConverged uses the shared 'scores' map (all trials) which is correct
 		converged := r.hasConverged(scores, result.trialNumber)
+
+		// Defer convergence if any document has had zero successful comparisons this round
+		if converged {
+			var zeroExposure []string
+			for _, doc := range documents {
+				if roundComparisons[doc.ID] == 0 {
+					zeroExposure = append(zeroExposure, doc.ID)
+				}
+			}
+			if len(zeroExposure) > 0 {
+				converged = false
+				r.cfg.Logger.Debug("Deferring convergence: zero-exposure items remain",
+					"round", r.round,
+					"count", len(zeroExposure))
+			}
+		}
 
 		// Build cumulative scores from ALL trials that have fully completed
 		// (regardless of their trial numbers - we care about completion order, not launch order)
