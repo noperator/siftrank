@@ -1534,8 +1534,9 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 	}()
 
 	// Track trial completion and stats
-	completedBatches := make(map[int]int) // trialNum -> count of completed batches
-	completedTrials := make(map[int]bool) // trialNum -> true if all batches completed
+	completedBatches := make(map[int]int)  // trialNum -> count of successful batches
+	processedBatches := make(map[int]int)  // trialNum -> all batches processed (including dropped)
+	completedTrials := make(map[int]bool)  // trialNum -> true if all batches processed
 
 	// Track per-trial stats
 	type trialStats struct {
@@ -1563,111 +1564,125 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 			continue
 		}
 
-		// Thread-safe update of shared scores (for convergence detection and final ranking)
-		scoresMutex.Lock()
-		for _, rankedDoc := range result.rankedDocs {
-			scores[rankedDoc.Document.ID] = append(scores[rankedDoc.Document.ID], rankedDoc.Score)
-		}
-		scoresMutex.Unlock()
-
-		// Track scores per trial for cumulative trace snapshots
-		trialScoresMutex.Lock()
-		if trialScores[result.trialNumber] == nil {
-			trialScores[result.trialNumber] = make(map[string][]float64)
-		}
-		for _, rankedDoc := range result.rankedDocs {
-			trialScores[result.trialNumber][rankedDoc.Document.ID] = append(
-				trialScores[result.trialNumber][rankedDoc.Document.ID],
-				rankedDoc.Score,
-			)
-		}
-		trialScoresMutex.Unlock()
-
-		// Track comparisons globally (across all rounds/trials)
-		r.mu.Lock()
-		for _, rankedDoc := range result.rankedDocs {
-			// Track which documents this was compared against
-			if r.comparedAgainst[rankedDoc.Document.ID] == nil {
-				r.comparedAgainst[rankedDoc.Document.ID] = make(map[string]bool)
-			}
-			// Add all OTHER documents from this batch to the compared-against set
-			for _, otherDoc := range result.rankedDocs {
-				if otherDoc.Document.ID != rankedDoc.Document.ID {
-					r.comparedAgainst[rankedDoc.Document.ID][otherDoc.Document.ID] = true
-				}
-			}
-		}
-		r.mu.Unlock()
-
-		// Log batch completion at debug level
-		r.cfg.Logger.Debug("Batch completed",
-			"round", r.round,
-			"trial", result.trialNumber,
-			"batch", result.batchNumber,
-			"num_calls", result.numCalls,
-			"input_tokens", result.usage.InputTokens,
-			"output_tokens", result.usage.OutputTokens)
-
-		// Track stats per trial
+		// Always track usage/calls regardless of dropped or successful
 		if trialStatsMap[result.trialNumber] == nil {
 			trialStatsMap[result.trialNumber] = &trialStats{}
 		}
 		stats := trialStatsMap[result.trialNumber]
-		stats.numBatches++
 		stats.numCalls += result.numCalls
 		stats.usage.Add(result.usage)
 
-		// Track trial completion
-		completedBatches[result.trialNumber]++
-
-		// Check if this trial just completed
-		if completedBatches[result.trialNumber] == r.numBatches {
-			// Mark this trial as fully completed
-			completedTrials[result.trialNumber] = true
-			completedTrialsCount := len(completedTrials)
-
-			r.cfg.Logger.Info("Trial completed",
+		// Detect dropped batch (nil rankedDocs with nil error)
+		if len(result.rankedDocs) == 0 {
+			r.cfg.Logger.Warn("Batch dropped after exhausting retries",
 				"round", r.round,
-				"trial", completedTrialsCount,
-				"num_batches", stats.numBatches,
-				"num_calls", stats.numCalls,
-				"input_tokens", stats.usage.InputTokens,
-				"output_tokens", stats.usage.OutputTokens)
+				"trial", result.trialNumber,
+				"batch", result.batchNumber,
+				"num_calls", result.numCalls)
+		} else {
+			// Thread-safe update of shared scores (for convergence detection and final ranking)
+			scoresMutex.Lock()
+			for _, rankedDoc := range result.rankedDocs {
+				scores[rankedDoc.Document.ID] = append(scores[rankedDoc.Document.ID], rankedDoc.Score)
+			}
+			scoresMutex.Unlock()
 
-			// Update running totals immediately after trial completion
-			r.mu.Lock()
-			r.totalUsage.Add(stats.usage)
-			r.totalCalls += stats.numCalls
-			r.totalBatches += stats.numBatches
-			r.mu.Unlock()
-
-			// Check for convergence (this adds the current trial's elbow to the array)
-			// Note: hasConverged uses the shared 'scores' map (all trials) which is correct
-			converged := r.hasConverged(scores, result.trialNumber)
-
-			// Build cumulative scores from ALL trials that have fully completed
-			// (regardless of their trial numbers - we care about completion order, not launch order)
+			// Track scores per trial for cumulative trace snapshots
 			trialScoresMutex.Lock()
-			cumulativeScores := make(map[string][]float64)
-			for trialNum := range completedTrials {
-				if trialData, exists := trialScores[trialNum]; exists {
-					for docID, scoreList := range trialData {
-						cumulativeScores[docID] = append(cumulativeScores[docID], scoreList...)
-					}
-				}
+			if trialScores[result.trialNumber] == nil {
+				trialScores[result.trialNumber] = make(map[string][]float64)
+			}
+			for _, rankedDoc := range result.rankedDocs {
+				trialScores[result.trialNumber][rankedDoc.Document.ID] = append(
+					trialScores[result.trialNumber][rankedDoc.Document.ID],
+					rankedDoc.Score,
+				)
 			}
 			trialScoresMutex.Unlock()
 
-			// Record trial state with cumulative scores from trials 1..N only
-			if err := r.recordTrialState(completedTrialsCount, completedTrialsCount, cumulativeScores, documents); err != nil {
-				r.cfg.Logger.Error("Failed to record trial state", "error", err)
+			// Track comparisons globally (across all rounds/trials)
+			r.mu.Lock()
+			for _, rankedDoc := range result.rankedDocs {
+				// Track which documents this was compared against
+				if r.comparedAgainst[rankedDoc.Document.ID] == nil {
+					r.comparedAgainst[rankedDoc.Document.ID] = make(map[string]bool)
+				}
+				// Add all OTHER documents from this batch to the compared-against set
+				for _, otherDoc := range result.rankedDocs {
+					if otherDoc.Document.ID != rankedDoc.Document.ID {
+						r.comparedAgainst[rankedDoc.Document.ID][otherDoc.Document.ID] = true
+					}
+				}
 			}
+			r.mu.Unlock()
 
-			// Signal workers to stop if converged
-			if converged {
-				// No need to log here - hasConverged() already logged if it's the first detection
-				cancel() // Signal all workers to stop processing new work
+			// Log batch completion at debug level
+			r.cfg.Logger.Debug("Batch completed",
+				"round", r.round,
+				"trial", result.trialNumber,
+				"batch", result.batchNumber,
+				"num_calls", result.numCalls,
+				"input_tokens", result.usage.InputTokens,
+				"output_tokens", result.usage.OutputTokens)
+
+			// Track successful batch stats
+			stats.numBatches++
+			completedBatches[result.trialNumber]++
+		}
+
+		// Always increment processedBatches (dropped or successful)
+		processedBatches[result.trialNumber]++
+
+		// Check if this trial just completed (all batches processed)
+		if processedBatches[result.trialNumber] != r.numBatches {
+			continue
+		}
+
+		// Mark this trial as fully completed
+		completedTrials[result.trialNumber] = true
+		completedTrialsCount := len(completedTrials)
+
+		r.cfg.Logger.Info("Trial completed",
+			"round", r.round,
+			"trial", completedTrialsCount,
+			"num_batches", stats.numBatches,
+			"num_calls", stats.numCalls,
+			"input_tokens", stats.usage.InputTokens,
+			"output_tokens", stats.usage.OutputTokens)
+
+		// Update running totals immediately after trial completion
+		r.mu.Lock()
+		r.totalUsage.Add(stats.usage)
+		r.totalCalls += stats.numCalls
+		r.totalBatches += stats.numBatches
+		r.mu.Unlock()
+
+		// Check for convergence (this adds the current trial's elbow to the array)
+		// Note: hasConverged uses the shared 'scores' map (all trials) which is correct
+		converged := r.hasConverged(scores, result.trialNumber)
+
+		// Build cumulative scores from ALL trials that have fully completed
+		// (regardless of their trial numbers - we care about completion order, not launch order)
+		trialScoresMutex.Lock()
+		cumulativeScores := make(map[string][]float64)
+		for trialNum := range completedTrials {
+			if trialData, exists := trialScores[trialNum]; exists {
+				for docID, scoreList := range trialData {
+					cumulativeScores[docID] = append(cumulativeScores[docID], scoreList...)
+				}
 			}
+		}
+		trialScoresMutex.Unlock()
+
+		// Record trial state with cumulative scores from trials 1..N only
+		if err := r.recordTrialState(completedTrialsCount, completedTrialsCount, cumulativeScores, documents); err != nil {
+			r.cfg.Logger.Error("Failed to record trial state", "error", err)
+		}
+
+		// Signal workers to stop if converged
+		if converged {
+			// No need to log here - hasConverged() already logged if it's the first detection
+			cancel() // Signal all workers to stop processing new work
 		}
 	}
 
