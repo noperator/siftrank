@@ -127,7 +127,7 @@ func init() {
 
 	// Prompt/Template flags
 	rootCmd.Flags().StringVarP(&initialPrompt, "prompt", "p", "", "initial prompt (prefix with @ to use a file)")
-	rootCmd.Flags().StringVar(&inputTemplate, "template", "{{.Data}}", "template for each object (prefix with @ to use a file)")
+	rootCmd.Flags().StringVar(&inputTemplate, "template", siftrank.DefaultTemplate, "template for each object (prefix with @ to use a file)")
 
 	// Algorithm parameter flags
 	rootCmd.Flags().IntVarP(&batchSize, "batch-size", "b", siftrank.DefaultBatchSize, "number of items per batch")
@@ -180,33 +180,9 @@ func init() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	// Set up logging
-	logLevel := slog.LevelInfo
-	if debug {
-		logLevel = slog.LevelDebug
-	}
-
-	var logWriter *os.File
-	var logOutput io.Writer = os.Stderr
-	if logFile != "" {
-		var err error
-		logWriter, err = os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to open log file: %w", err)
-		}
-		defer logWriter.Close()
-		logOutput = logWriter
-	} else if watch {
-		// Suppress logs when --watch is used without --log
-		logOutput = io.Discard
-	}
-
-	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{
-		Level: logLevel,
-	})).With("component", "siftrank-cli")
-
-	// Load config file and profile
+	// Load config file and profile (before logging setup)
 	var profile map[string]interface{}
+	var effectiveProfileName string
 	configPath, configFound := findConfigFile(configFilePath)
 
 	if configFilePath != "" && !configFound {
@@ -230,20 +206,19 @@ func run(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		effectiveProfile := profileName
-		if effectiveProfile == "" {
-			effectiveProfile = cfgFile.Default
+		effectiveProfileName = profileName
+		if effectiveProfileName == "" {
+			effectiveProfileName = cfgFile.Default
 		}
 
-		if effectiveProfile != "" {
-			profile, err = resolveProfile(cfgFile, effectiveProfile)
+		if effectiveProfileName != "" {
+			profile, err = resolveProfile(cfgFile, effectiveProfileName)
 			if err != nil {
 				return err
 			}
 			if err := resolveCMDFields(profile); err != nil {
 				return err
 			}
-			logger.Debug("loaded profile", "name", effectiveProfile, "config", configPath)
 		}
 	}
 
@@ -258,7 +233,7 @@ func run(cmd *cobra.Command, args []string) error {
 		userPrompt = string(content)
 	}
 
-	// Create config
+	// Create config from CLI vars
 	config := &siftrank.Config{
 		InitialPrompt:   userPrompt,
 		BatchSize:       batchSize,
@@ -274,10 +249,13 @@ func run(cmd *cobra.Command, args []string) error {
 		TracePath:       traceFile,
 		Relevance:       relevance,
 		Effort:          effort,
-		LogLevel:  logLevel,
-		Logger:    logger,
-		Watch:     watch,
-		NoMinimap: noMinimap,
+		Watch:           watch,
+		NoMinimap:       noMinimap,
+		OutputFile:      outputFile,
+		ForceJSON:       forceJSON,
+		Template:        inputTemplate,
+		LogFile:         logFile,
+		Debug:           debug,
 
 		EnableConvergence: !noConverge,
 		ElbowTolerance:    elbowTolerance,
@@ -286,11 +264,43 @@ func run(cmd *cobra.Command, args []string) error {
 		ElbowMethod:       siftrank.ElbowMethod(elbowMethod),
 	}
 
-	// Apply profile settings (if loaded)
+	// Apply profile settings (may override Debug, LogFile, Template, OutputFile, etc.)
 	if profile != nil {
 		applyProfile(profile, config, func(name string) bool {
 			return cmd.Flags().Changed(name)
 		})
+	}
+
+	// Set up logging (after profile is applied)
+	logLevel := slog.LevelInfo
+	if config.Debug {
+		logLevel = slog.LevelDebug
+	}
+
+	var logWriter *os.File
+	var logOutput io.Writer = os.Stderr
+	if config.LogFile != "" {
+		var err error
+		logWriter, err = os.OpenFile(config.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open log file: %w", err)
+		}
+		defer logWriter.Close()
+		logOutput = logWriter
+	} else if config.Watch {
+		// Suppress logs when --watch is used without --log
+		logOutput = io.Discard
+	}
+
+	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{
+		Level: logLevel,
+	})).With("component", "siftrank-cli")
+
+	config.LogLevel = logLevel
+	config.Logger = logger
+
+	if effectiveProfileName != "" {
+		logger.Debug("loaded profile", "name", effectiveProfileName, "config", configPath)
 	}
 
 	// Create ranker
@@ -300,7 +310,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Rank documents
-	finalResults, err := ranker.RankFromFile(inputFile, inputTemplate, forceJSON)
+	finalResults, err := ranker.RankFromFile(inputFile, config.Template, config.ForceJSON)
 	if err != nil {
 		return fmt.Errorf("failed to rank from file: %w", err)
 	}
@@ -317,11 +327,11 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write to output file if specified
-	if outputFile != "" {
-		if err := os.WriteFile(outputFile, jsonResults, 0644); err != nil {
+	if config.OutputFile != "" {
+		if err := os.WriteFile(config.OutputFile, jsonResults, 0644); err != nil {
 			return fmt.Errorf("failed to write output file: %w", err)
 		}
-		logger.Info("results written to file", "file", outputFile)
+		logger.Info("results written to file", "file", config.OutputFile)
 	}
 
 	return nil

@@ -48,6 +48,7 @@ const (
 	DefaultBatchTokens       = 128000
 	DefaultRefinementRatio   = 0.5
 	DefaultEncoding          = "o200k_base"
+	DefaultTemplate          = "{{.Data}}"
 	DefaultElbowTolerance    = 0.05
 	DefaultStableTrials      = 5
 	DefaultMinTrials         = 5
@@ -114,7 +115,24 @@ type Config struct {
 
 	// TracePath writes JSON Lines trace output to this file path.
 	// Empty string disables tracing.
-	TracePath string `json:"-" yaml:"-"`
+	TracePath string `json:"-" yaml:"trace"`
+
+	// OutputFile writes JSON results to this file path in addition to stdout.
+	// Empty string disables file output.
+	OutputFile string `json:"-" yaml:"output"`
+
+	// ForceJSON parses input as a JSON array regardless of file extension.
+	ForceJSON bool `json:"-" yaml:"json"`
+
+	// Template is the Go template string (or @file path) for formatting each input item.
+	Template string `json:"-" yaml:"template"`
+
+	// LogFile writes logs to this file path instead of stderr.
+	// Empty string writes to stderr.
+	LogFile string `json:"-" yaml:"log"`
+
+	// Debug enables debug-level logging.
+	Debug bool `json:"-" yaml:"debug"`
 
 	// Relevance enables post-processing to generate pros/cons for each item.
 	Relevance bool `json:"relevance" yaml:"relevance"`
@@ -224,6 +242,7 @@ func NewConfig() *Config {
 		BatchTokens:       DefaultBatchTokens,
 		RefinementRatio:   DefaultRefinementRatio,
 		Encoding:          DefaultEncoding,
+		Template:          DefaultTemplate,
 		ElbowMethod:       DefaultElbowMethod,
 		ElbowTolerance:    DefaultElbowTolerance,
 		StableTrials:      DefaultStableTrials,
