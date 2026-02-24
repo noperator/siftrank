@@ -88,79 +88,79 @@ var (
 type Config struct {
 	// InitialPrompt is the ranking instruction sent to the LLM.
 	// Example: "Rank these items by relevance to machine learning"
-	InitialPrompt string `json:"initial_prompt"`
+	InitialPrompt string `json:"initial_prompt" yaml:"prompt"`
 
 	// BatchSize is the number of documents compared per LLM call.
 	// Smaller batches = more accurate, larger batches = faster.
-	BatchSize int `json:"batch_size"`
+	BatchSize int `json:"batch_size" yaml:"batch_size"`
 
 	// NumTrials is the maximum number of ranking trials to run.
 	// More trials improve stability but increase cost/time.
-	NumTrials int `json:"num_trials"`
+	NumTrials int `json:"num_trials" yaml:"max_trials"`
 
 	// Concurrency is the maximum concurrent LLM calls across all trials.
-	Concurrency int `json:"concurrency"`
+	Concurrency int `json:"concurrency" yaml:"concurrency"`
 
 	// RefinementRatio controls how many top documents are re-ranked (0.0-1.0).
 	// 0.5 means top 50% are refined in subsequent rounds.
-	RefinementRatio float64 `json:"refinement_ratio"`
+	RefinementRatio float64 `json:"refinement_ratio" yaml:"ratio"`
 
 	// BatchTokens is the maximum tokens per batch (for batch sizing).
-	BatchTokens int `json:"batch_tokens"`
+	BatchTokens int `json:"batch_tokens" yaml:"tokens"`
 
 	// DryRun logs API calls without making them (for testing).
-	DryRun bool `json:"-"`
+	DryRun bool `json:"-" yaml:"-"`
 
 	// TracePath writes JSON Lines trace output to this file path.
 	// Empty string disables tracing.
-	TracePath string `json:"-"`
+	TracePath string `json:"-" yaml:"-"`
 
 	// Relevance enables post-processing to generate pros/cons for each item.
-	Relevance bool `json:"relevance"`
+	Relevance bool `json:"relevance" yaml:"relevance"`
 
 	// LogLevel controls logging verbosity (slog.LevelInfo, slog.LevelDebug, etc).
-	LogLevel slog.Level `json:"-"`
+	LogLevel slog.Level `json:"-" yaml:"-"`
 
 	// Logger is the structured logger for output. If nil, a default is created.
-	Logger *slog.Logger `json:"-"`
+	Logger *slog.Logger `json:"-" yaml:"-"`
 
 	// EnableConvergence enables early stopping when rankings stabilize.
-	EnableConvergence bool `json:"enable_convergence"`
+	EnableConvergence bool `json:"enable_convergence" yaml:"enable_convergence"`
 
 	// ElbowTolerance is the allowed variance in elbow position (0.05 = 5%).
-	ElbowTolerance float64 `json:"elbow_tolerance"`
+	ElbowTolerance float64 `json:"elbow_tolerance" yaml:"elbow_tolerance"`
 
 	// StableTrials is how many consecutive trials must agree for convergence.
-	StableTrials int `json:"stable_trials"`
+	StableTrials int `json:"stable_trials" yaml:"stable_trials"`
 
 	// MinTrials is the minimum trials before checking convergence.
-	MinTrials int `json:"min_trials"`
+	MinTrials int `json:"min_trials" yaml:"min_trials"`
 
 	// ElbowMethod selects the algorithm for elbow detection.
 	// ElbowMethodCurvature (default) or ElbowMethodPerpendicular.
-	ElbowMethod ElbowMethod `json:"elbow_method"`
+	ElbowMethod ElbowMethod `json:"elbow_method" yaml:"elbow_method"`
 
 	// LLMProvider handles LLM calls. If nil, creates default OpenAI provider.
-	LLMProvider LLMProvider `json:"-"`
+	LLMProvider LLMProvider `json:"-" yaml:"-"`
 
 	// OpenAI configuration (used only if LLMProvider is nil)
-	OpenAIModel  openai.ChatModel `json:"openai_model"` // Model name (e.g., "gpt-4o-mini")
-	OpenAIKey    string           `json:"-"`            // API key (required if LLMProvider is nil)
-	OpenAIAPIURL string           `json:"-"`            // Base URL (for compatible APIs like vLLM)
+	OpenAIModel  openai.ChatModel `json:"openai_model" yaml:"model"`    // Model name (e.g., "gpt-4o-mini")
+	OpenAIKey    string           `json:"-" yaml:"api_key"`             // API key (required if LLMProvider is nil)
+	OpenAIAPIURL string           `json:"-" yaml:"base_url"`            // Base URL (for compatible APIs like vLLM)
 
 	// Encoding is the tokenizer encoding name (e.g., "o200k_base").
 	// Used only by the default OpenAI provider for accurate token counting.
 	// Custom LLMProvider implementations can ignore this field.
-	Encoding string `json:"encoding"`
+	Encoding string `json:"encoding" yaml:"encoding"`
 
 	// Effort is the reasoning effort level: none, minimal, low, medium, high.
-	Effort string `json:"effort"`
+	Effort string `json:"effort" yaml:"effort"`
 
 	// Watch enables live terminal visualization (CLI only).
-	Watch bool `json:"-"`
+	Watch bool `json:"-" yaml:"-"`
 
 	// NoMinimap disables the minimap panel in watch mode (CLI only).
-	NoMinimap bool `json:"-"`
+	NoMinimap bool `json:"-" yaml:"-"`
 }
 
 func (c *Config) Validate() error {

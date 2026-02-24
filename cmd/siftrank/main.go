@@ -52,6 +52,10 @@ var (
 	watch     bool
 	noMinimap bool
 	logFile   string
+
+	// Profile params
+	profileName    string
+	configFilePath string
 )
 
 // setFlagGroup annotates flags with a group name for organized help output.
@@ -154,6 +158,10 @@ func init() {
 	rootCmd.Flags().BoolVar(&noMinimap, "no-minimap", false, "disable minimap panel in watch mode")
 	rootCmd.Flags().StringVar(&logFile, "log", "", "write logs to file instead of stderr")
 
+	// Profile flags
+	rootCmd.Flags().StringVarP(&profileName, "profile", "P", "", "use a named profile from the config file")
+	rootCmd.Flags().StringVar(&configFilePath, "config-file", "", "path to config file (overrides discovery)")
+
 	// Register template functions for flag grouping
 	cobra.AddTemplateFunc("FlagsInGroup", FlagsInGroup)
 	cobra.AddTemplateFunc("FilterFlags", FilterFlags)
@@ -165,7 +173,7 @@ func init() {
 	rootCmd.SetUsageTemplate(usageTemplate)
 
 	// Organize flags into groups
-	setFlagGroup(rootCmd, "options", "file", "prompt", "output", "model", "relevance")
+	setFlagGroup(rootCmd, "options", "file", "prompt", "output", "model", "relevance", "profile", "config-file")
 	setFlagGroup(rootCmd, "visualization", "watch", "no-minimap")
 	setFlagGroup(rootCmd, "debug", "trace", "debug", "dry-run", "log")
 	setFlagGroup(rootCmd, "advanced", "template", "json", "base-url", "encoding", "effort", "tokens", "batch-size", "max-trials", "concurrency", "ratio", "no-converge", "elbow-tolerance", "stable-trials", "min-trials", "elbow-method")
@@ -196,6 +204,48 @@ func run(cmd *cobra.Command, args []string) error {
 	logger := slog.New(slog.NewTextHandler(logOutput, &slog.HandlerOptions{
 		Level: logLevel,
 	})).With("component", "siftrank-cli")
+
+	// Load config file and profile
+	var profile map[string]interface{}
+	configPath, configFound := findConfigFile(configFilePath)
+
+	if configFilePath != "" && !configFound {
+		return fmt.Errorf("config file not found: %s", configFilePath)
+	}
+
+	if !configFound && profileName != "" {
+		return fmt.Errorf("--profile specified but no config file found")
+	}
+
+	if configFound {
+		// Verify the file exists when explicitly specified
+		if configFilePath != "" {
+			if _, err := os.Stat(configPath); os.IsNotExist(err) {
+				return fmt.Errorf("config file not found: %s", configPath)
+			}
+		}
+
+		cfgFile, err := loadConfigFile(configPath)
+		if err != nil {
+			return err
+		}
+
+		effectiveProfile := profileName
+		if effectiveProfile == "" {
+			effectiveProfile = cfgFile.Default
+		}
+
+		if effectiveProfile != "" {
+			profile, err = resolveProfile(cfgFile, effectiveProfile)
+			if err != nil {
+				return err
+			}
+			if err := resolveCMDFields(profile); err != nil {
+				return err
+			}
+			logger.Debug("loaded profile", "name", effectiveProfile, "config", configPath)
+		}
+	}
 
 	// Validate refinement ratio
 	if refinementRatio < 0 || refinementRatio >= 1 {
@@ -239,6 +289,13 @@ func run(cmd *cobra.Command, args []string) error {
 		StableTrials:      stableTrials,
 		MinTrials:         minTrials,
 		ElbowMethod:       siftrank.ElbowMethod(elbowMethod),
+	}
+
+	// Apply profile settings (if loaded)
+	if profile != nil {
+		applyProfile(profile, config, func(name string) bool {
+			return cmd.Flags().Changed(name)
+		})
 	}
 
 	// Create ranker
