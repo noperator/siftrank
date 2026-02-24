@@ -53,6 +53,7 @@ const (
 	DefaultMinTrials         = 5
 	DefaultElbowMethod       = ElbowMethodCurvature
 	DefaultEnableConvergence = true
+	DefaultOpenAIModel       = openai.ChatModelGPT4oMini
 )
 
 // Word lists for generating memorable IDs
@@ -143,10 +144,11 @@ type Config struct {
 	// LLMProvider handles LLM calls. If nil, creates default OpenAI provider.
 	LLMProvider LLMProvider `json:"-" yaml:"-"`
 
-	// OpenAI configuration (used only if LLMProvider is nil)
+	// OpenAI configuration (used only if LLMProvider is nil).
+	// json:"-" is intentional — prevents secrets from leaking into JSON output.
 	OpenAIModel  openai.ChatModel `json:"openai_model" yaml:"model"`    // Model name (e.g., "gpt-4o-mini")
-	OpenAIKey    string           `json:"-" yaml:"api_key"`             // API key (required if LLMProvider is nil)
-	OpenAIAPIURL string           `json:"-" yaml:"base_url"`            // Base URL (for compatible APIs like vLLM)
+	OpenAIKey    string           `json:"-" yaml:"api_key"`             // API key; may be omitted for local/unauthenticated endpoints
+	OpenAIAPIURL string           `json:"-" yaml:"base_url"`            // Base URL override (e.g., for vLLM or other OpenAI-compatible APIs)
 
 	// Encoding is the tokenizer encoding name (e.g., "o200k_base").
 	// Used only by the default OpenAI provider for accurate token counting.
@@ -179,12 +181,24 @@ func (c *Config) Validate() error {
 	if c.BatchTokens <= 0 {
 		return fmt.Errorf("batch tokens must be greater than 0")
 	}
-	// Only require OpenAI key if no provider is set
-	if c.LLMProvider == nil && c.OpenAIAPIURL == "" && c.OpenAIKey == "" {
-		return fmt.Errorf("openai key cannot be empty")
+	if c.RefinementRatio < 0 || c.RefinementRatio >= 1 {
+		return fmt.Errorf("refinement ratio must be >= 0 and < 1")
 	}
 	if c.BatchSize < minBatchSize {
 		return fmt.Errorf("batch size must be at least %d", minBatchSize)
+	}
+	switch c.Effort {
+	case "", "none", "minimal", "low", "medium", "high":
+		// valid; empty string means "not set", use provider default
+	default:
+		return fmt.Errorf("effort must be one of: none, minimal, low, medium, high; got %q", c.Effort)
+	}
+	if c.ElbowMethod != "" && c.ElbowMethod != ElbowMethodCurvature && c.ElbowMethod != ElbowMethodPerpendicular {
+		return fmt.Errorf("elbow method must be ElbowMethodCurvature or ElbowMethodPerpendicular, got '%s'", c.ElbowMethod)
+	}
+	// Only require OpenAI key if no provider is set
+	if c.LLMProvider == nil && c.OpenAIAPIURL == "" && c.OpenAIKey == "" {
+		return fmt.Errorf("openai key cannot be empty")
 	}
 	if c.EnableConvergence {
 		if c.ElbowTolerance < 0 || c.ElbowTolerance >= 1 {
@@ -197,14 +211,11 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("minimum trials must be at least 2")
 		}
 	}
-	if c.ElbowMethod != "" && c.ElbowMethod != ElbowMethodCurvature && c.ElbowMethod != ElbowMethodPerpendicular {
-		return fmt.Errorf("elbow method must be ElbowMethodCurvature or ElbowMethodPerpendicular, got '%s'", c.ElbowMethod)
-	}
 	return nil
 }
 
 // NewConfig returns a Config with sensible defaults matching the CLI.
-// Callers should set at minimum: InitialPrompt and OpenAIKey (or LLMProvider).
+// Callers must set at minimum: InitialPrompt and either OpenAIKey or LLMProvider.
 func NewConfig() *Config {
 	return &Config{
 		BatchSize:         DefaultBatchSize,
@@ -218,6 +229,7 @@ func NewConfig() *Config {
 		StableTrials:      DefaultStableTrials,
 		MinTrials:         DefaultMinTrials,
 		EnableConvergence: DefaultEnableConvergence,
+		OpenAIModel:       DefaultOpenAIModel,
 	}
 }
 

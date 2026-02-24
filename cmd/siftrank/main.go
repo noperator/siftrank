@@ -247,11 +247,6 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Validate refinement ratio
-	if refinementRatio < 0 || refinementRatio >= 1 {
-		return fmt.Errorf("refinement ratio must be >= 0 and < 1")
-	}
-
 	// Load prompt from file if needed
 	userPrompt := initialPrompt
 	if strings.HasPrefix(userPrompt, "@") {
