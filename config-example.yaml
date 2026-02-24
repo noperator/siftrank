@@ -1,0 +1,71 @@
+# siftrank config file
+# Place at ~/.config/siftrank/config.yaml or ./config.yaml
+#
+# Set a default profile to use when --profile is not specified.
+# Remove or comment out to require explicit --profile selection.
+default: openai
+
+# Here are a few example profiles just to give you an idea of how you might
+# tailor them for specific use cases.
+profiles:
+
+  # Full-featured OpenAI profile using 1Password for key retrieval.
+  # Retrieve the key via shell command to avoid storing it in plaintext.
+  openai:
+    api_key_cmd: op read "op://Personal/OpenAI/api-key"
+    model: gpt-4o-mini
+
+  # High-quality profile for important rankings — slower and more expensive.
+  openai-smart:
+    api_key_cmd: op read "op://Personal/OpenAI/api-key"
+    model: gpt-5.2-2025-12-11
+    effort: high
+    max_trials: 50
+    batch_size: 5
+
+  # Minimal profile for quick/cheap experimentation.
+  fast:
+    api_key_cmd: op read "op://Personal/OpenAI/api-key"
+    model: gpt-5-nano-2025-08-07
+    max_trials: 10
+    batch_size: 15
+    enable_convergence: false
+    effort: minimal
+
+  # Local model via vLLM or llama.cpp (no real key needed).
+  local:
+    base_url: http://localhost:8000/v1
+    api_key: dummy
+    model: qwen3:30b
+    max_trials: 20
+    concurrency: 5
+
+  # Exhaustive profile showing every available option.
+  # Not meant for direct use — copy and trim what you need.
+  all-options:
+    # Credentials
+    api_key_cmd: op read "op://Personal/OpenAI/api-key"  # shell command whose stdout is the key
+    api_key: sk-...                                      # or literal key (not recommended)
+    base_url: https://api.openai.com/v1                  # override for vLLM or compatible APIs
+
+    # Model
+    model: gpt-4o-mini       # model name
+    encoding: o200k_base     # tokenizer encoding for accurate token counting
+    effort: medium           # reasoning effort: none, minimal, low, medium, high
+
+    # Ranking behavior
+    prompt: "Rank these items by relevance"  # default prompt (overridden by --prompt or @file)
+    batch_size: 10           # documents per LLM call (min 2; smaller = more accurate, slower)
+    max_trials: 50           # maximum ranking trials
+    concurrency: 50          # maximum concurrent LLM calls
+    tokens: 128000           # maximum tokens per batch
+    ratio: 0.5               # refinement ratio (0.0–1.0); fraction of top docs re-ranked each round
+    relevance: false         # generate pros/cons for each ranked item
+
+    # Convergence (early stopping when rankings stabilize)
+    enable_convergence: true
+    elbow_method: curvature  # curvature or perpendicular
+    elbow_tolerance: 0.05    # allowed variance in elbow position (0.05 = 5%)
+    stable_trials: 5         # consecutive trials that must agree before stopping
+    min_trials: 5            # minimum trials before convergence is checked
+
