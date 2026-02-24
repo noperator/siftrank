@@ -392,13 +392,13 @@ type RelevanceProsCons struct {
 type RankedDocument struct {
 	Key        string             `json:"key"`
 	Value      string             `json:"value"`
-	Document   interface{}        `json:"document"`    // if loading from json file
+	Document   interface{}        `json:"document"` // if loading from json file
 	Score      float64            `json:"score"`
-	Exposure   float64            `json:"exposure"`    // percentage of dataset compared against (0.0-1.0)
+	Exposure   float64            `json:"exposure"` // percentage of dataset compared against (0.0-1.0)
 	Rank       int                `json:"rank"`
 	Rounds     int                `json:"rounds"`              // number of rounds participated in
 	Relevance  *RelevanceProsCons `json:"relevance,omitempty"` // Only if relevance enabled
-	InputIndex int                `json:"input_index"` // Index in original input (0-based)
+	InputIndex int                `json:"input_index"`         // Index in original input (0-based)
 }
 
 type traceDocument struct {
@@ -1534,9 +1534,9 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 	}()
 
 	// Track trial completion and stats
-	completedBatches := make(map[int]int)  // trialNum -> count of successful batches
-	processedBatches := make(map[int]int)  // trialNum -> all batches processed (including dropped)
-	completedTrials := make(map[int]bool)  // trialNum -> true if all batches processed
+	completedBatches := make(map[int]int) // trialNum -> count of successful batches
+	processedBatches := make(map[int]int) // trialNum -> all batches processed (including dropped)
+	completedTrials := make(map[int]bool) // trialNum -> true if all batches processed
 
 	// Track per-trial stats
 	type trialStats struct {
@@ -2387,7 +2387,7 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 		problem  string // What went wrong
 	}
 
-	const outerAttempts = 5
+	const outerAttempts = 3
 	const innerAttempts = 3
 
 	var lastMissingIDs []string
@@ -2569,7 +2569,7 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 		// Inner loop exhausted - outer loop continues with new ID set
 	}
 
-	// All 15 attempts exhausted - drop the batch rather than failing the entire run
+	// All attempts exhausted - drop the batch rather than failing the entire run
 	r.cfg.Logger.Warn("Dropping batch after max attempts",
 		"round", r.round,
 		"trial", trialNumber,
