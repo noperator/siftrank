@@ -33,7 +33,16 @@ go install github.com/noperator/siftrank/cmd/siftrank@latest
 
 ### Configure
 
-Set your `OPENAI_API_KEY` environment variable.
+Either set an `OPENAI_API_KEY` environment variable, or create a named configuration profile in  `~/.config/siftrank/config.yaml` or `./config.yaml` containing the API key. The `default` profile auto-loads when `-P` is not specified, and CLI flags always take precedence over profile values. Use `*_cmd` to retrieve secrets from a password manager or other command rather than storing them in plaintext. See [`config-example.yaml`](config-example.yaml) for all available options.
+
+```yaml
+default: nano
+profiles:
+  nano:
+    api_key_cmd: op read op://myvault/openai-api-key/credential
+    model: gpt-5-nano-2025-08-07
+    effort: minimal
+```
 
 ### Usage
 
@@ -41,11 +50,13 @@ Set your `OPENAI_API_KEY` environment variable.
 siftrank -h
 
 Options:
-  -f, --file string     input file (required)
-  -m, --model string    OpenAI model name (default "gpt-4o-mini")
-  -o, --output string   JSON output file
-  -p, --prompt string   initial prompt (prefix with @ to use a file)
-  -r, --relevance       post-process each item by providing relevance justification (skips round 1)
+      --config-file string   path to config file (overrides discovery)
+  -f, --file string          input file (required)
+  -m, --model string         OpenAI model name (default "gpt-4o-mini")
+  -o, --output string        JSON output file
+  -P, --profile string       use a named profile from the config file
+  -p, --prompt string        initial prompt (prefix with @ to use a file)
+  -r, --relevance            post-process each item by providing relevance justification (skips round 1)
 
 Visualization:
       --no-minimap   disable minimap panel in watch mode
@@ -73,9 +84,6 @@ Advanced:
       --stable-trials int       stable trials required for convergence (default 5)
       --template string         template for each object (prefix with @ to use a file) (default "{{.Data}}")
       --tokens int              max tokens per batch (default 128000)
-
-Flags:
-  -h, --help   help for siftrank
 ```
 
 Compares 100 [sentences](https://github.com/noperator/siftrank/blob/main/testdata/sentences.txt) in 7 seconds.
