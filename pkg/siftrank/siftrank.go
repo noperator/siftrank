@@ -2327,186 +2327,196 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 		response string
 		problem  string // What went wrong
 	}
-	var lastAttempt *previousAttempt
 
-	maxRetries := 10
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	const outerAttempts = 5
+	const innerAttempts = 3
+
+	var lastMissingIDs []string
+
+	for outer := 0; outer < outerAttempts; outer++ {
+		// Reset lastAttempt for each outer iteration - old temp IDs are no longer valid
+		var lastAttempt *previousAttempt
+
 		// Check if context cancelled
 		if ctx.Err() != nil {
 			return nil, numCalls, totalUsage, ctx.Err()
 		}
 
-		// Try to create memorable ID mappings for each attempt
+		// Try to create memorable ID mappings for this outer iteration
 		originalToTemp, tempToOriginal, err := createIDMappings(group, r.rng, r.cfg.Logger)
 		useMemorableIDs := err == nil && originalToTemp != nil && tempToOriginal != nil
 
-		// Build prompt (business logic)
-		prompt := r.cfg.InitialPrompt + promptDisclaimer
-
-		// Track input IDs for validation
+		// Compute inputIDs once per outer iteration (IDs don't change within inner loop)
 		inputIDs := make(map[string]bool)
-
 		if useMemorableIDs {
-			// Use memorable IDs in the prompt
 			for _, doc := range group {
-				tempID := originalToTemp[doc.ID]
-				prompt += fmt.Sprintf(promptFmt, tempID, doc.Value)
-				inputIDs[tempID] = true
+				inputIDs[originalToTemp[doc.ID]] = true
 			}
 		} else {
-			// Fall back to original IDs
 			for _, doc := range group {
-				prompt += fmt.Sprintf(promptFmt, doc.ID, doc.Value)
 				inputIDs[doc.ID] = true
 			}
 		}
 
-		// Add relevance instructions when enabled and past round 1
-		if r.cfg.Relevance && r.round > 1 {
-			prompt += "\n\nIMPORTANT: In addition to ranking, you must also provide relevance explanations. For each document, write a brief 1-2 sentence explanation focusing on the specific qualities that make it MORE or LESS relevant to the ranking criteria/prompt. Do not confuse 'good qualities' with 'relevant to prompt' - for example, if ranking by 'find vulnerabilities', vulnerabilities are relevant even though they are bad.\n\n"
-			prompt += "Your response must include both:\n"
-			prompt += "1. A 'docs' array with the ranked IDs\n"
-			prompt += "2. A 'relevance' array with an entry for each document\n\n"
-			prompt += "Example format:\n"
-			prompt += "{\n"
-			prompt += "  \"docs\": [\"id1\", \"id2\", \"id3\"],\n"
-			prompt += "  \"relevance\": [\n"
-			prompt += "    {\"id\": \"id1\", \"text\": \"This document ranked highest because...\"},\n"
-			prompt += "    {\"id\": \"id2\", \"text\": \"This document ranked second because...\"},\n"
-			prompt += "    {\"id\": \"id3\", \"text\": \"This document ranked lowest because...\"}\n"
-			prompt += "  ]\n"
-			prompt += "}\n"
-		}
+		for inner := 0; inner < innerAttempts; inner++ {
+			// Check if context cancelled
+			if ctx.Err() != nil {
+				return nil, numCalls, totalUsage, ctx.Err()
+			}
 
-		// Add feedback from previous attempt (SiftRank's business logic - prompt-based feedback)
-		if lastAttempt != nil {
-			prompt += "\n\n--- PREVIOUS ATTEMPT ---\n"
-			prompt += fmt.Sprintf("You previously returned: %s\n", lastAttempt.response)
-			prompt += fmt.Sprintf("PROBLEM: %s\n", lastAttempt.problem)
-			prompt += "Please provide a corrected response.\n"
-			prompt += "--- END PREVIOUS ATTEMPT ---\n"
-		}
+			// Build prompt (business logic)
+			prompt := r.cfg.InitialPrompt + promptDisclaimer
 
-		// Call provider with options
-		opts := &CompletionOptions{
-			Schema: schema,
-		}
+			if useMemorableIDs {
+				// Use memorable IDs in the prompt
+				for _, doc := range group {
+					tempID := originalToTemp[doc.ID]
+					prompt += fmt.Sprintf(promptFmt, tempID, doc.Value)
+				}
+			} else {
+				// Fall back to original IDs
+				for _, doc := range group {
+					prompt += fmt.Sprintf(promptFmt, doc.ID, doc.Value)
+				}
+			}
 
-		rawResponse, err := r.provider.Complete(ctx, prompt, opts)
+			// Add relevance instructions when enabled and past round 1
+			if r.cfg.Relevance && r.round > 1 {
+				prompt += "\n\nIMPORTANT: In addition to ranking, you must also provide relevance explanations. For each document, write a brief 1-2 sentence explanation focusing on the specific qualities that make it MORE or LESS relevant to the ranking criteria/prompt. Do not confuse 'good qualities' with 'relevant to prompt' - for example, if ranking by 'find vulnerabilities', vulnerabilities are relevant even though they are bad.\n\n"
+				prompt += "Your response must include both:\n"
+				prompt += "1. A 'docs' array with the ranked IDs\n"
+				prompt += "2. A 'relevance' array with an entry for each document\n\n"
+				prompt += "Example format:\n"
+				prompt += "{\n"
+				prompt += "  \"docs\": [\"id1\", \"id2\", \"id3\"],\n"
+				prompt += "  \"relevance\": [\n"
+				prompt += "    {\"id\": \"id1\", \"text\": \"This document ranked highest because...\"},\n"
+				prompt += "    {\"id\": \"id2\", \"text\": \"This document ranked second because...\"},\n"
+				prompt += "    {\"id\": \"id3\", \"text\": \"This document ranked lowest because...\"}\n"
+				prompt += "  ]\n"
+				prompt += "}\n"
+			}
 
-		// Accumulate usage from opts
-		numCalls++
-		totalUsage.Add(opts.Usage)
+			// Add feedback from previous attempt (SiftRank's business logic - prompt-based feedback)
+			if lastAttempt != nil {
+				prompt += "\n\n--- PREVIOUS ATTEMPT ---\n"
+				prompt += fmt.Sprintf("You previously returned: %s\n", lastAttempt.response)
+				prompt += fmt.Sprintf("PROBLEM: %s\n", lastAttempt.problem)
+				prompt += "Please provide a corrected response.\n"
+				prompt += "--- END PREVIOUS ATTEMPT ---\n"
+			}
 
-		// Log the call
-		r.cfg.Logger.Debug("LLM call completed",
-			"round", r.round,
-			"trial", trialNumber,
-			"batch", batchNumber,
-			"attempt", attempt+1,
-			"input_tokens", opts.Usage.InputTokens,
-			"output_tokens", opts.Usage.OutputTokens,
-			"reasoning_tokens", opts.Usage.ReasoningTokens,
-			"model", opts.ModelUsed,
-			"finish_reason", opts.FinishReason)
+			// Call provider with options
+			opts := &CompletionOptions{
+				Schema: schema,
+			}
 
-		if err != nil {
-			if attempt == maxRetries-1 {
+			rawResponse, err := r.provider.Complete(ctx, prompt, opts)
+
+			// Accumulate usage from opts
+			numCalls++
+			totalUsage.Add(opts.Usage)
+
+			// Log the call
+			r.cfg.Logger.Debug("LLM call completed",
+				"round", r.round,
+				"trial", trialNumber,
+				"batch", batchNumber,
+				"attempt", outer*innerAttempts+inner+1,
+				"input_tokens", opts.Usage.InputTokens,
+				"output_tokens", opts.Usage.OutputTokens,
+				"reasoning_tokens", opts.Usage.ReasoningTokens,
+				"model", opts.ModelUsed,
+				"finish_reason", opts.FinishReason)
+
+			// Provider errors are fatal - provider has already exhausted its internal retries
+			if err != nil {
 				return nil, numCalls, totalUsage, err
 			}
-			r.logFromApiCall(trialNumber, batchNumber,
-				"Provider call failed, retrying (attempt %d): %v", attempt+1, err)
-			continue
-		}
 
-		// Extract JSON from response (handles markdown, etc.)
-		jsonResponse, err := extractJSON(rawResponse)
-		if err != nil {
-			lastAttempt = &previousAttempt{
-				response: rawResponse,
-				problem:  "Your response was not valid JSON or was not formatted correctly. Please respond with ONLY valid JSON matching the schema, with no markdown formatting or extra text.",
+			// Extract JSON from response (handles markdown, etc.)
+			jsonResponse, err := extractJSON(rawResponse)
+			if err != nil {
+				lastAttempt = &previousAttempt{
+					response: rawResponse,
+					problem:  "Your response was not valid JSON or was not formatted correctly. Please respond with ONLY valid JSON matching the schema, with no markdown formatting or extra text.",
+				}
+
+				r.logFromApiCall(trialNumber, batchNumber,
+					"JSON extraction failed, retrying (attempt %d): %v", outer*innerAttempts+inner+1, err)
+				continue
 			}
 
-			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage,
-					fmt.Errorf("failed to extract JSON after %d attempts: %w", maxRetries, err)
+			// Parse JSON (business logic)
+			var rankedResponse rankedDocumentResponse
+			if err := json.Unmarshal([]byte(jsonResponse), &rankedResponse); err != nil {
+				lastAttempt = &previousAttempt{
+					response: jsonResponse,
+					problem:  fmt.Sprintf("Your JSON had a syntax error: %v", err),
+				}
+
+				r.logFromApiCall(trialNumber, batchNumber,
+					"JSON parse failed, retrying (attempt %d): %v", outer*innerAttempts+inner+1, err)
+				continue
 			}
 
-			r.logFromApiCall(trialNumber, batchNumber,
-				"JSON extraction failed, retrying (attempt %d): %v", attempt+1, err)
-			continue
-		}
+			// Validate IDs (business logic)
+			// This also fixes case-insensitive matches in place
+			missingIDs, err := validateIDs(&rankedResponse, inputIDs)
+			if err != nil {
+				lastAttempt = &previousAttempt{
+					response: jsonResponse,
+					problem:  fmt.Sprintf("You're missing these IDs: [%s]. Please include ALL IDs.", strings.Join(missingIDs, ", ")),
+				}
+				lastMissingIDs = missingIDs
 
-		// Parse JSON (business logic)
-		var rankedResponse rankedDocumentResponse
-		if err := json.Unmarshal([]byte(jsonResponse), &rankedResponse); err != nil {
-			lastAttempt = &previousAttempt{
-				response: jsonResponse,
-				problem:  fmt.Sprintf("Your JSON had a syntax error: %v", err),
+				r.logFromApiCall(trialNumber, batchNumber,
+					"Missing IDs, retrying (attempt %d): %v", outer*innerAttempts+inner+1, missingIDs)
+				continue
 			}
 
-			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage, fmt.Errorf("invalid JSON: %w", err)
+			// Translate memorable IDs back (business logic)
+			if useMemorableIDs {
+				translateIDsInResponse(&rankedResponse, tempToOriginal)
 			}
 
-			r.logFromApiCall(trialNumber, batchNumber,
-				"JSON parse failed, retrying (attempt %d): %v", attempt+1, err)
-			continue
-		}
-
-		// Validate IDs (business logic)
-		// This also fixes case-insensitive matches in place
-		missingIDs, err := validateIDs(&rankedResponse, inputIDs)
-		if err != nil {
-			lastAttempt = &previousAttempt{
-				response: jsonResponse,
-				problem:  fmt.Sprintf("You're missing these IDs: [%s]. Please include ALL IDs.", strings.Join(missingIDs, ", ")),
-			}
-
-			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage,
-					fmt.Errorf("missing IDs after %d attempts: %v", maxRetries, missingIDs)
-			}
-
-			r.logFromApiCall(trialNumber, batchNumber,
-				"Missing IDs, retrying (attempt %d): %v", attempt+1, missingIDs)
-			continue
-		}
-
-		// Translate memorable IDs back (business logic)
-		if useMemorableIDs {
-			translateIDsInResponse(&rankedResponse, tempToOriginal)
-		}
-
-		// Success! Build ranked documents (business logic)
-		var rankedDocs []rankedDocument
-		for i, id := range rankedResponse.Documents {
-			for _, doc := range group {
-				if doc.ID == id {
-					rankedDocs = append(rankedDocs, rankedDocument{
-						Document: doc,
-						Score:    float64(i + 1), // Score based on position (1 for first, 2 for second, etc.)
-					})
-					break
+			// Success! Build ranked documents (business logic)
+			var rankedDocs []rankedDocument
+			for i, id := range rankedResponse.Documents {
+				for _, doc := range group {
+					if doc.ID == id {
+						rankedDocs = append(rankedDocs, rankedDocument{
+							Document: doc,
+							Score:    float64(i + 1), // Score based on position (1 for first, 2 for second, etc.)
+						})
+						break
+					}
 				}
 			}
-		}
 
-		// Store relevance snippets if collected (business logic)
-		if r.cfg.Relevance && r.round > 1 && len(rankedResponse.Relevance) > 0 {
-			r.mu.Lock()
-			for _, docRelevance := range rankedResponse.Relevance {
-				if stats, exists := r.allDocStats[docRelevance.ID]; exists {
-					stats.relevanceSnippets = append(stats.relevanceSnippets, docRelevance.Text)
+			// Store relevance snippets if collected (business logic)
+			if r.cfg.Relevance && r.round > 1 && len(rankedResponse.Relevance) > 0 {
+				r.mu.Lock()
+				for _, docRelevance := range rankedResponse.Relevance {
+					if stats, exists := r.allDocStats[docRelevance.ID]; exists {
+						stats.relevanceSnippets = append(stats.relevanceSnippets, docRelevance.Text)
+					}
 				}
+				r.mu.Unlock()
 			}
-			r.mu.Unlock()
-		}
 
-		return rankedDocs, numCalls, totalUsage, nil
+			return rankedDocs, numCalls, totalUsage, nil
+		}
+		// Inner loop exhausted - outer loop continues with new ID set
 	}
 
-	return nil, numCalls, totalUsage, fmt.Errorf("failed after %d attempts", maxRetries)
+	// All 15 attempts exhausted - drop the batch rather than failing the entire run
+	r.cfg.Logger.Warn("Dropping batch after max attempts",
+		"round", r.round,
+		"trial", trialNumber,
+		"batch", batchNumber,
+		"missing_ids", lastMissingIDs)
+	return nil, numCalls, totalUsage, nil
 }
 
 // validateIDs updates the rankedResponse in place to fix case-insensitive ID mismatches.
