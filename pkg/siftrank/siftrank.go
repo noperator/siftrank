@@ -1739,6 +1739,23 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 	r.totalRounds++ // Increment on each round
 	r.mu.Unlock()
 
+	// Drop zero-exposure items at end of round (they have no score data anyway)
+	var zeroExposure []string
+	for _, doc := range documents {
+		if roundComparisons[doc.ID] == 0 {
+			zeroExposure = append(zeroExposure, doc.ID)
+		}
+	}
+	if len(zeroExposure) > 0 {
+		r.cfg.Logger.Warn("Dropping zero-exposure items at end of round",
+			"round", r.round,
+			"count", len(zeroExposure),
+			"ids", zeroExposure)
+		for _, id := range zeroExposure {
+			delete(scores, id)
+		}
+	}
+
 	// Calculate average scores
 	finalScores := make(map[string]float64)
 
