@@ -404,13 +404,13 @@ type RelevanceProsCons struct {
 type RankedDocument struct {
 	Key        string             `json:"key"`
 	Value      string             `json:"value"`
-	Document   interface{}        `json:"document"`    // if loading from json file
+	Document   interface{}        `json:"document"` // if loading from json file
 	Score      float64            `json:"score"`
-	Exposure   float64            `json:"exposure"`    // percentage of dataset compared against (0.0-1.0)
+	Exposure   float64            `json:"exposure"` // percentage of dataset compared against (0.0-1.0)
 	Rank       int                `json:"rank"`
 	Rounds     int                `json:"rounds"`              // number of rounds participated in
 	Relevance  *RelevanceProsCons `json:"relevance,omitempty"` // Only if relevance enabled
-	InputIndex int                `json:"input_index"` // Index in original input (0-based)
+	InputIndex int                `json:"input_index"`         // Index in original input (0-based)
 }
 
 type traceDocument struct {
@@ -1546,8 +1546,9 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 	}()
 
 	// Track trial completion and stats
-	completedBatches := make(map[int]int) // trialNum -> count of completed batches
-	completedTrials := make(map[int]bool) // trialNum -> true if all batches completed
+	completedBatches := make(map[int]int) // trialNum -> count of successful batches
+	processedBatches := make(map[int]int) // trialNum -> all batches processed (including dropped)
+	completedTrials := make(map[int]bool) // trialNum -> true if all batches processed
 
 	// Track per-trial stats
 	type trialStats struct {
@@ -1556,6 +1557,12 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 		usage      Usage
 	}
 	trialStatsMap := make(map[int]*trialStats) // trial number -> stats
+
+	// Per-round comparison tracking — local to this call, not propagated globally
+	roundComparisons := make(map[string]int)
+	for _, doc := range documents {
+		roundComparisons[doc.ID] = 0
+	}
 
 	// Track fatal errors that should propagate to callers
 	var fatalErr error
@@ -1575,111 +1582,146 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 			continue
 		}
 
-		// Thread-safe update of shared scores (for convergence detection and final ranking)
-		scoresMutex.Lock()
-		for _, rankedDoc := range result.rankedDocs {
-			scores[rankedDoc.Document.ID] = append(scores[rankedDoc.Document.ID], rankedDoc.Score)
-		}
-		scoresMutex.Unlock()
-
-		// Track scores per trial for cumulative trace snapshots
-		trialScoresMutex.Lock()
-		if trialScores[result.trialNumber] == nil {
-			trialScores[result.trialNumber] = make(map[string][]float64)
-		}
-		for _, rankedDoc := range result.rankedDocs {
-			trialScores[result.trialNumber][rankedDoc.Document.ID] = append(
-				trialScores[result.trialNumber][rankedDoc.Document.ID],
-				rankedDoc.Score,
-			)
-		}
-		trialScoresMutex.Unlock()
-
-		// Track comparisons globally (across all rounds/trials)
-		r.mu.Lock()
-		for _, rankedDoc := range result.rankedDocs {
-			// Track which documents this was compared against
-			if r.comparedAgainst[rankedDoc.Document.ID] == nil {
-				r.comparedAgainst[rankedDoc.Document.ID] = make(map[string]bool)
-			}
-			// Add all OTHER documents from this batch to the compared-against set
-			for _, otherDoc := range result.rankedDocs {
-				if otherDoc.Document.ID != rankedDoc.Document.ID {
-					r.comparedAgainst[rankedDoc.Document.ID][otherDoc.Document.ID] = true
-				}
-			}
-		}
-		r.mu.Unlock()
-
-		// Log batch completion at debug level
-		r.cfg.Logger.Debug("Batch completed",
-			"round", r.round,
-			"trial", result.trialNumber,
-			"batch", result.batchNumber,
-			"num_calls", result.numCalls,
-			"input_tokens", result.usage.InputTokens,
-			"output_tokens", result.usage.OutputTokens)
-
-		// Track stats per trial
+		// Always track usage/calls regardless of dropped or successful
 		if trialStatsMap[result.trialNumber] == nil {
 			trialStatsMap[result.trialNumber] = &trialStats{}
 		}
 		stats := trialStatsMap[result.trialNumber]
-		stats.numBatches++
 		stats.numCalls += result.numCalls
 		stats.usage.Add(result.usage)
 
-		// Track trial completion
-		completedBatches[result.trialNumber]++
-
-		// Check if this trial just completed
-		if completedBatches[result.trialNumber] == r.numBatches {
-			// Mark this trial as fully completed
-			completedTrials[result.trialNumber] = true
-			completedTrialsCount := len(completedTrials)
-
-			r.cfg.Logger.Info("Trial completed",
+		// Detect dropped batch (nil rankedDocs with nil error)
+		if len(result.rankedDocs) == 0 {
+			r.cfg.Logger.Warn("Batch dropped after exhausting retries",
 				"round", r.round,
-				"trial", completedTrialsCount,
-				"num_batches", stats.numBatches,
-				"num_calls", stats.numCalls,
-				"input_tokens", stats.usage.InputTokens,
-				"output_tokens", stats.usage.OutputTokens)
+				"trial", result.trialNumber,
+				"batch", result.batchNumber,
+				"num_calls", result.numCalls)
+		} else {
+			// Thread-safe update of shared scores (for convergence detection and final ranking)
+			scoresMutex.Lock()
+			for _, rankedDoc := range result.rankedDocs {
+				scores[rankedDoc.Document.ID] = append(scores[rankedDoc.Document.ID], rankedDoc.Score)
+			}
+			scoresMutex.Unlock()
 
-			// Update running totals immediately after trial completion
-			r.mu.Lock()
-			r.totalUsage.Add(stats.usage)
-			r.totalCalls += stats.numCalls
-			r.totalBatches += stats.numBatches
-			r.mu.Unlock()
-
-			// Check for convergence (this adds the current trial's elbow to the array)
-			// Note: hasConverged uses the shared 'scores' map (all trials) which is correct
-			converged := r.hasConverged(scores, result.trialNumber)
-
-			// Build cumulative scores from ALL trials that have fully completed
-			// (regardless of their trial numbers - we care about completion order, not launch order)
+			// Track scores per trial for cumulative trace snapshots
 			trialScoresMutex.Lock()
-			cumulativeScores := make(map[string][]float64)
-			for trialNum := range completedTrials {
-				if trialData, exists := trialScores[trialNum]; exists {
-					for docID, scoreList := range trialData {
-						cumulativeScores[docID] = append(cumulativeScores[docID], scoreList...)
-					}
-				}
+			if trialScores[result.trialNumber] == nil {
+				trialScores[result.trialNumber] = make(map[string][]float64)
+			}
+			for _, rankedDoc := range result.rankedDocs {
+				trialScores[result.trialNumber][rankedDoc.Document.ID] = append(
+					trialScores[result.trialNumber][rankedDoc.Document.ID],
+					rankedDoc.Score,
+				)
 			}
 			trialScoresMutex.Unlock()
 
-			// Record trial state with cumulative scores from trials 1..N only
-			if err := r.recordTrialState(completedTrialsCount, completedTrialsCount, cumulativeScores, documents); err != nil {
-				r.cfg.Logger.Error("Failed to record trial state", "error", err)
+			// Track comparisons globally (across all rounds/trials)
+			r.mu.Lock()
+			for _, rankedDoc := range result.rankedDocs {
+				// Track which documents this was compared against
+				if r.comparedAgainst[rankedDoc.Document.ID] == nil {
+					r.comparedAgainst[rankedDoc.Document.ID] = make(map[string]bool)
+				}
+				// Add all OTHER documents from this batch to the compared-against set
+				for _, otherDoc := range result.rankedDocs {
+					if otherDoc.Document.ID != rankedDoc.Document.ID {
+						r.comparedAgainst[rankedDoc.Document.ID][otherDoc.Document.ID] = true
+					}
+				}
 			}
+			r.mu.Unlock()
 
-			// Signal workers to stop if converged
-			if converged {
-				// No need to log here - hasConverged() already logged if it's the first detection
-				cancel() // Signal all workers to stop processing new work
+			// Log batch completion at debug level
+			r.cfg.Logger.Debug("Batch completed",
+				"round", r.round,
+				"trial", result.trialNumber,
+				"batch", result.batchNumber,
+				"num_calls", result.numCalls,
+				"input_tokens", result.usage.InputTokens,
+				"output_tokens", result.usage.OutputTokens)
+
+			// Track successful batch stats
+			stats.numBatches++
+			completedBatches[result.trialNumber]++
+
+			// Track per-round comparisons for zero-exposure detection
+			for _, rankedDoc := range result.rankedDocs {
+				roundComparisons[rankedDoc.Document.ID]++
 			}
+		}
+
+		// Always increment processedBatches (dropped or successful)
+		processedBatches[result.trialNumber]++
+
+		// Check if this trial just completed (all batches processed)
+		if processedBatches[result.trialNumber] != r.numBatches {
+			continue
+		}
+
+		// Mark this trial as fully completed
+		completedTrials[result.trialNumber] = true
+		completedTrialsCount := len(completedTrials)
+
+		r.cfg.Logger.Info("Trial completed",
+			"round", r.round,
+			"trial", completedTrialsCount,
+			"num_batches", stats.numBatches,
+			"num_calls", stats.numCalls,
+			"input_tokens", stats.usage.InputTokens,
+			"output_tokens", stats.usage.OutputTokens)
+
+		// Update running totals immediately after trial completion
+		r.mu.Lock()
+		r.totalUsage.Add(stats.usage)
+		r.totalCalls += stats.numCalls
+		r.totalBatches += stats.numBatches
+		r.mu.Unlock()
+
+		// Check for convergence (this adds the current trial's elbow to the array)
+		// Note: hasConverged uses the shared 'scores' map (all trials) which is correct
+		converged := r.hasConverged(scores, result.trialNumber)
+
+		// Defer convergence if any document has had zero successful comparisons this round
+		if converged {
+			var zeroExposure []string
+			for _, doc := range documents {
+				if roundComparisons[doc.ID] == 0 {
+					zeroExposure = append(zeroExposure, doc.ID)
+				}
+			}
+			if len(zeroExposure) > 0 {
+				converged = false
+				r.cfg.Logger.Debug("Deferring convergence: zero-exposure items remain",
+					"round", r.round,
+					"count", len(zeroExposure))
+			}
+		}
+
+		// Build cumulative scores from ALL trials that have fully completed
+		// (regardless of their trial numbers - we care about completion order, not launch order)
+		trialScoresMutex.Lock()
+		cumulativeScores := make(map[string][]float64)
+		for trialNum := range completedTrials {
+			if trialData, exists := trialScores[trialNum]; exists {
+				for docID, scoreList := range trialData {
+					cumulativeScores[docID] = append(cumulativeScores[docID], scoreList...)
+				}
+			}
+		}
+		trialScoresMutex.Unlock()
+
+		// Record trial state with cumulative scores from trials 1..N only
+		if err := r.recordTrialState(completedTrialsCount, completedTrialsCount, cumulativeScores, documents); err != nil {
+			r.cfg.Logger.Error("Failed to record trial state", "error", err)
+		}
+
+		// Signal workers to stop if converged
+		if converged {
+			// No need to log here - hasConverged() already logged if it's the first detection
+			cancel() // Signal all workers to stop processing new work
 		}
 	}
 
@@ -1708,6 +1750,23 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 	r.totalTrials += completedTrialsCount
 	r.totalRounds++ // Increment on each round
 	r.mu.Unlock()
+
+	// Drop zero-exposure items at end of round (they have no score data anyway)
+	var zeroExposure []string
+	for _, doc := range documents {
+		if roundComparisons[doc.ID] == 0 {
+			zeroExposure = append(zeroExposure, doc.ID)
+		}
+	}
+	if len(zeroExposure) > 0 {
+		r.cfg.Logger.Warn("Dropping zero-exposure items at end of round",
+			"round", r.round,
+			"count", len(zeroExposure),
+			"ids", zeroExposure)
+		for _, id := range zeroExposure {
+			delete(scores, id)
+		}
+	}
 
 	// Calculate average scores
 	finalScores := make(map[string]float64)
@@ -2339,186 +2398,196 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 		response string
 		problem  string // What went wrong
 	}
-	var lastAttempt *previousAttempt
 
-	maxRetries := 10
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	const outerAttempts = 3
+	const innerAttempts = 3
+
+	var lastMissingIDs []string
+
+	for outer := 0; outer < outerAttempts; outer++ {
+		// Reset lastAttempt for each outer iteration - old temp IDs are no longer valid
+		var lastAttempt *previousAttempt
+
 		// Check if context cancelled
 		if ctx.Err() != nil {
 			return nil, numCalls, totalUsage, ctx.Err()
 		}
 
-		// Try to create memorable ID mappings for each attempt
+		// Try to create memorable ID mappings for this outer iteration
 		originalToTemp, tempToOriginal, err := createIDMappings(group, r.rng, r.cfg.Logger)
 		useMemorableIDs := err == nil && originalToTemp != nil && tempToOriginal != nil
 
-		// Build prompt (business logic)
-		prompt := r.cfg.InitialPrompt + promptDisclaimer
-
-		// Track input IDs for validation
+		// Compute inputIDs once per outer iteration (IDs don't change within inner loop)
 		inputIDs := make(map[string]bool)
-
 		if useMemorableIDs {
-			// Use memorable IDs in the prompt
 			for _, doc := range group {
-				tempID := originalToTemp[doc.ID]
-				prompt += fmt.Sprintf(promptFmt, tempID, doc.Value)
-				inputIDs[tempID] = true
+				inputIDs[originalToTemp[doc.ID]] = true
 			}
 		} else {
-			// Fall back to original IDs
 			for _, doc := range group {
-				prompt += fmt.Sprintf(promptFmt, doc.ID, doc.Value)
 				inputIDs[doc.ID] = true
 			}
 		}
 
-		// Add relevance instructions when enabled and past round 1
-		if r.cfg.Relevance && r.round > 1 {
-			prompt += "\n\nIMPORTANT: In addition to ranking, you must also provide relevance explanations. For each document, write a brief 1-2 sentence explanation focusing on the specific qualities that make it MORE or LESS relevant to the ranking criteria/prompt. Do not confuse 'good qualities' with 'relevant to prompt' - for example, if ranking by 'find vulnerabilities', vulnerabilities are relevant even though they are bad.\n\n"
-			prompt += "Your response must include both:\n"
-			prompt += "1. A 'docs' array with the ranked IDs\n"
-			prompt += "2. A 'relevance' array with an entry for each document\n\n"
-			prompt += "Example format:\n"
-			prompt += "{\n"
-			prompt += "  \"docs\": [\"id1\", \"id2\", \"id3\"],\n"
-			prompt += "  \"relevance\": [\n"
-			prompt += "    {\"id\": \"id1\", \"text\": \"This document ranked highest because...\"},\n"
-			prompt += "    {\"id\": \"id2\", \"text\": \"This document ranked second because...\"},\n"
-			prompt += "    {\"id\": \"id3\", \"text\": \"This document ranked lowest because...\"}\n"
-			prompt += "  ]\n"
-			prompt += "}\n"
-		}
+		for inner := 0; inner < innerAttempts; inner++ {
+			// Check if context cancelled
+			if ctx.Err() != nil {
+				return nil, numCalls, totalUsage, ctx.Err()
+			}
 
-		// Add feedback from previous attempt (SiftRank's business logic - prompt-based feedback)
-		if lastAttempt != nil {
-			prompt += "\n\n--- PREVIOUS ATTEMPT ---\n"
-			prompt += fmt.Sprintf("You previously returned: %s\n", lastAttempt.response)
-			prompt += fmt.Sprintf("PROBLEM: %s\n", lastAttempt.problem)
-			prompt += "Please provide a corrected response.\n"
-			prompt += "--- END PREVIOUS ATTEMPT ---\n"
-		}
+			// Build prompt (business logic)
+			prompt := r.cfg.InitialPrompt + promptDisclaimer
 
-		// Call provider with options
-		opts := &CompletionOptions{
-			Schema: schema,
-		}
+			if useMemorableIDs {
+				// Use memorable IDs in the prompt
+				for _, doc := range group {
+					tempID := originalToTemp[doc.ID]
+					prompt += fmt.Sprintf(promptFmt, tempID, doc.Value)
+				}
+			} else {
+				// Fall back to original IDs
+				for _, doc := range group {
+					prompt += fmt.Sprintf(promptFmt, doc.ID, doc.Value)
+				}
+			}
 
-		rawResponse, err := r.provider.Complete(ctx, prompt, opts)
+			// Add relevance instructions when enabled and past round 1
+			if r.cfg.Relevance && r.round > 1 {
+				prompt += "\n\nIMPORTANT: In addition to ranking, you must also provide relevance explanations. For each document, write a brief 1-2 sentence explanation focusing on the specific qualities that make it MORE or LESS relevant to the ranking criteria/prompt. Do not confuse 'good qualities' with 'relevant to prompt' - for example, if ranking by 'find vulnerabilities', vulnerabilities are relevant even though they are bad.\n\n"
+				prompt += "Your response must include both:\n"
+				prompt += "1. A 'docs' array with the ranked IDs\n"
+				prompt += "2. A 'relevance' array with an entry for each document\n\n"
+				prompt += "Example format:\n"
+				prompt += "{\n"
+				prompt += "  \"docs\": [\"id1\", \"id2\", \"id3\"],\n"
+				prompt += "  \"relevance\": [\n"
+				prompt += "    {\"id\": \"id1\", \"text\": \"This document ranked highest because...\"},\n"
+				prompt += "    {\"id\": \"id2\", \"text\": \"This document ranked second because...\"},\n"
+				prompt += "    {\"id\": \"id3\", \"text\": \"This document ranked lowest because...\"}\n"
+				prompt += "  ]\n"
+				prompt += "}\n"
+			}
 
-		// Accumulate usage from opts
-		numCalls++
-		totalUsage.Add(opts.Usage)
+			// Add feedback from previous attempt (SiftRank's business logic - prompt-based feedback)
+			if lastAttempt != nil {
+				prompt += "\n\n--- PREVIOUS ATTEMPT ---\n"
+				prompt += fmt.Sprintf("You previously returned: %s\n", lastAttempt.response)
+				prompt += fmt.Sprintf("PROBLEM: %s\n", lastAttempt.problem)
+				prompt += "Please provide a corrected response.\n"
+				prompt += "--- END PREVIOUS ATTEMPT ---\n"
+			}
 
-		// Log the call
-		r.cfg.Logger.Debug("LLM call completed",
-			"round", r.round,
-			"trial", trialNumber,
-			"batch", batchNumber,
-			"attempt", attempt+1,
-			"input_tokens", opts.Usage.InputTokens,
-			"output_tokens", opts.Usage.OutputTokens,
-			"reasoning_tokens", opts.Usage.ReasoningTokens,
-			"model", opts.ModelUsed,
-			"finish_reason", opts.FinishReason)
+			// Call provider with options
+			opts := &CompletionOptions{
+				Schema: schema,
+			}
 
-		if err != nil {
-			if attempt == maxRetries-1 {
+			rawResponse, err := r.provider.Complete(ctx, prompt, opts)
+
+			// Accumulate usage from opts
+			numCalls++
+			totalUsage.Add(opts.Usage)
+
+			// Log the call
+			r.cfg.Logger.Debug("LLM call completed",
+				"round", r.round,
+				"trial", trialNumber,
+				"batch", batchNumber,
+				"attempt", outer*innerAttempts+inner+1,
+				"input_tokens", opts.Usage.InputTokens,
+				"output_tokens", opts.Usage.OutputTokens,
+				"reasoning_tokens", opts.Usage.ReasoningTokens,
+				"model", opts.ModelUsed,
+				"finish_reason", opts.FinishReason)
+
+			// Provider errors are fatal - provider has already exhausted its internal retries
+			if err != nil {
 				return nil, numCalls, totalUsage, err
 			}
-			r.logFromApiCall(trialNumber, batchNumber,
-				"Provider call failed, retrying (attempt %d): %v", attempt+1, err)
-			continue
-		}
 
-		// Extract JSON from response (handles markdown, etc.)
-		jsonResponse, err := extractJSON(rawResponse)
-		if err != nil {
-			lastAttempt = &previousAttempt{
-				response: rawResponse,
-				problem:  "Your response was not valid JSON or was not formatted correctly. Please respond with ONLY valid JSON matching the schema, with no markdown formatting or extra text.",
+			// Extract JSON from response (handles markdown, etc.)
+			jsonResponse, err := extractJSON(rawResponse)
+			if err != nil {
+				lastAttempt = &previousAttempt{
+					response: rawResponse,
+					problem:  "Your response was not valid JSON or was not formatted correctly. Please respond with ONLY valid JSON matching the schema, with no markdown formatting or extra text.",
+				}
+
+				r.logFromApiCall(trialNumber, batchNumber,
+					"JSON extraction failed, retrying (attempt %d): %v", outer*innerAttempts+inner+1, err)
+				continue
 			}
 
-			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage,
-					fmt.Errorf("failed to extract JSON after %d attempts: %w", maxRetries, err)
+			// Parse JSON (business logic)
+			var rankedResponse rankedDocumentResponse
+			if err := json.Unmarshal([]byte(jsonResponse), &rankedResponse); err != nil {
+				lastAttempt = &previousAttempt{
+					response: jsonResponse,
+					problem:  fmt.Sprintf("Your JSON had a syntax error: %v", err),
+				}
+
+				r.logFromApiCall(trialNumber, batchNumber,
+					"JSON parse failed, retrying (attempt %d): %v", outer*innerAttempts+inner+1, err)
+				continue
 			}
 
-			r.logFromApiCall(trialNumber, batchNumber,
-				"JSON extraction failed, retrying (attempt %d): %v", attempt+1, err)
-			continue
-		}
+			// Validate IDs (business logic)
+			// This also fixes case-insensitive matches in place
+			missingIDs, err := validateIDs(&rankedResponse, inputIDs)
+			if err != nil {
+				lastAttempt = &previousAttempt{
+					response: jsonResponse,
+					problem:  fmt.Sprintf("You're missing these IDs: [%s]. Please include ALL IDs.", strings.Join(missingIDs, ", ")),
+				}
+				lastMissingIDs = missingIDs
 
-		// Parse JSON (business logic)
-		var rankedResponse rankedDocumentResponse
-		if err := json.Unmarshal([]byte(jsonResponse), &rankedResponse); err != nil {
-			lastAttempt = &previousAttempt{
-				response: jsonResponse,
-				problem:  fmt.Sprintf("Your JSON had a syntax error: %v", err),
+				r.logFromApiCall(trialNumber, batchNumber,
+					"Missing IDs, retrying (attempt %d): %v", outer*innerAttempts+inner+1, missingIDs)
+				continue
 			}
 
-			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage, fmt.Errorf("invalid JSON: %w", err)
+			// Translate memorable IDs back (business logic)
+			if useMemorableIDs {
+				translateIDsInResponse(&rankedResponse, tempToOriginal)
 			}
 
-			r.logFromApiCall(trialNumber, batchNumber,
-				"JSON parse failed, retrying (attempt %d): %v", attempt+1, err)
-			continue
-		}
-
-		// Validate IDs (business logic)
-		// This also fixes case-insensitive matches in place
-		missingIDs, err := validateIDs(&rankedResponse, inputIDs)
-		if err != nil {
-			lastAttempt = &previousAttempt{
-				response: jsonResponse,
-				problem:  fmt.Sprintf("You're missing these IDs: [%s]. Please include ALL IDs.", strings.Join(missingIDs, ", ")),
-			}
-
-			if attempt == maxRetries-1 {
-				return nil, numCalls, totalUsage,
-					fmt.Errorf("missing IDs after %d attempts: %v", maxRetries, missingIDs)
-			}
-
-			r.logFromApiCall(trialNumber, batchNumber,
-				"Missing IDs, retrying (attempt %d): %v", attempt+1, missingIDs)
-			continue
-		}
-
-		// Translate memorable IDs back (business logic)
-		if useMemorableIDs {
-			translateIDsInResponse(&rankedResponse, tempToOriginal)
-		}
-
-		// Success! Build ranked documents (business logic)
-		var rankedDocs []rankedDocument
-		for i, id := range rankedResponse.Documents {
-			for _, doc := range group {
-				if doc.ID == id {
-					rankedDocs = append(rankedDocs, rankedDocument{
-						Document: doc,
-						Score:    float64(i + 1), // Score based on position (1 for first, 2 for second, etc.)
-					})
-					break
+			// Success! Build ranked documents (business logic)
+			var rankedDocs []rankedDocument
+			for i, id := range rankedResponse.Documents {
+				for _, doc := range group {
+					if doc.ID == id {
+						rankedDocs = append(rankedDocs, rankedDocument{
+							Document: doc,
+							Score:    float64(i + 1), // Score based on position (1 for first, 2 for second, etc.)
+						})
+						break
+					}
 				}
 			}
-		}
 
-		// Store relevance snippets if collected (business logic)
-		if r.cfg.Relevance && r.round > 1 && len(rankedResponse.Relevance) > 0 {
-			r.mu.Lock()
-			for _, docRelevance := range rankedResponse.Relevance {
-				if stats, exists := r.allDocStats[docRelevance.ID]; exists {
-					stats.relevanceSnippets = append(stats.relevanceSnippets, docRelevance.Text)
+			// Store relevance snippets if collected (business logic)
+			if r.cfg.Relevance && r.round > 1 && len(rankedResponse.Relevance) > 0 {
+				r.mu.Lock()
+				for _, docRelevance := range rankedResponse.Relevance {
+					if stats, exists := r.allDocStats[docRelevance.ID]; exists {
+						stats.relevanceSnippets = append(stats.relevanceSnippets, docRelevance.Text)
+					}
 				}
+				r.mu.Unlock()
 			}
-			r.mu.Unlock()
-		}
 
-		return rankedDocs, numCalls, totalUsage, nil
+			return rankedDocs, numCalls, totalUsage, nil
+		}
+		// Inner loop exhausted - outer loop continues with new ID set
 	}
 
-	return nil, numCalls, totalUsage, fmt.Errorf("failed after %d attempts", maxRetries)
+	// All attempts exhausted - drop the batch rather than failing the entire run
+	r.cfg.Logger.Warn("Dropping batch after max attempts",
+		"round", r.round,
+		"trial", trialNumber,
+		"batch", batchNumber,
+		"missing_ids", lastMissingIDs)
+	return nil, numCalls, totalUsage, nil
 }
 
 // validateIDs updates the rankedResponse in place to fix case-insensitive ID mismatches.

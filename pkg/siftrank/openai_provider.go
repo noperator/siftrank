@@ -80,7 +80,7 @@ func NewOpenAIProvider(cfg OpenAIConfig) (*OpenAIProvider, error) {
 	clientOptions := []option.RequestOption{
 		option.WithAPIKey(cfg.APIKey),
 		option.WithHTTPClient(httpClient),
-		option.WithMaxRetries(5),
+		option.WithMaxRetries(0), // Disable SDK-level retries; Complete's infinite loop handles transient errors
 	}
 
 	if cfg.BaseURL != "" {
