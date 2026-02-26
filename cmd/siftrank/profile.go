@@ -118,7 +118,7 @@ func applyProfile(profile map[string]interface{}, config *siftrank.Config, chang
 	// where underscore→hyphen translation alone doesn't produce the right flag name.
 	// Empty string means no CLI flag — always apply.
 	exceptions := map[string]string{
-		"api_key":            "",           // no CLI flag, always apply
+		"api_key":            "",            // no CLI flag, always apply
 		"enable_convergence": "no-converge", // inverted/renamed CLI flag
 	}
 

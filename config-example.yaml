@@ -69,3 +69,13 @@ profiles:
     stable_trials: 5         # consecutive trials that must agree before stopping
     min_trials: 5            # minimum trials before convergence is checked
 
+    # Output
+    output: results.json         # write JSON results to this file (in addition to stdout)
+    json: false                  # parse input as JSON array regardless of file extension
+    template: "{{.Data}}"        # Go template for each item; prefix with @ to load from file
+
+    # Logging / debug
+    log: siftrank.log            # write logs to file instead of stderr
+    debug: false                 # enable debug-level logging
+    trace: trace.jsonl           # stream trial state as JSON Lines to this file
+
