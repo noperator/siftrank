@@ -216,6 +216,18 @@ type traceLine struct {
 	Rankings          []traceDocument `json:"rankings"`
 }
 
+type batchTraceScore struct {
+	ID    string  `json:"id"`
+	Score float64 `json:"score"` // raw rank within batch, 1 = best (1-indexed position)
+}
+
+type batchTraceLine struct {
+	Round  int               `json:"round"`
+	Trial  int               `json:"trial"`
+	Batch  int               `json:"batch"`
+	Scores []batchTraceScore `json:"scores"`
+}
+
 // RankFromFile ranks documents loaded from a file.
 //
 // Parameters:
@@ -865,6 +877,10 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 				scores[rankedDoc.Document.ID] = append(scores[rankedDoc.Document.ID], rankedDoc.Score)
 			}
 			scoresMutex.Unlock()
+
+			if err := r.recordBatchState(result.trialNumber, result.batchNumber, result.rankedDocs); err != nil {
+				r.cfg.Logger.Error("Failed to record batch state", "error", err)
+			}
 
 			// Track scores per trial for cumulative trace snapshots
 			trialScoresMutex.Lock()

@@ -238,6 +238,39 @@ func (r *Ranker) renderMainDisplay(screen tcell.Screen, rankings []traceDocument
 	}
 }
 
+func (r *Ranker) recordBatchState(trialNum int, batchNum int, rankedDocs []rankedDocument) error {
+	if r.traceFile == nil {
+		return nil
+	}
+
+	var scores []batchTraceScore
+	for _, doc := range rankedDocs {
+		scores = append(scores, batchTraceScore{
+			ID:    doc.Document.ID,
+			Score: doc.Score,
+		})
+	}
+
+	line := batchTraceLine{
+		Round:  r.round,
+		Trial:  trialNum,
+		Batch:  batchNum,
+		Scores: scores,
+	}
+
+	data, err := json.Marshal(line)
+	if err != nil {
+		return fmt.Errorf("failed to marshal batch trace line: %w", err)
+	}
+	if _, err := r.traceFile.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("failed to write batch trace line: %w", err)
+	}
+	if err := r.traceFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync batch trace line: %w", err)
+	}
+	return nil
+}
+
 func (r *Ranker) recordTrialState(trialNum int, trialsCompleted int, scores map[string][]float64, documents []document) error {
 	// Early exit if neither feature is enabled
 	if r.traceFile == nil && !r.cfg.Watch {
