@@ -30,6 +30,7 @@ var (
 	concurrency     int
 	batchTokens     int
 	refinementRatio float64
+	maxRounds       int
 
 	// Model params
 	oaiModel string
@@ -135,6 +136,7 @@ func init() {
 	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", siftrank.DefaultConcurrency, "max concurrent LLM calls across all trials")
 	rootCmd.Flags().IntVar(&batchTokens, "tokens", siftrank.DefaultBatchTokens, "max tokens per batch")
 	rootCmd.Flags().Float64Var(&refinementRatio, "ratio", siftrank.DefaultRefinementRatio, "refinement ratio (0.0-1.0, e.g. 0.5 = top 50%)")
+	rootCmd.Flags().IntVar(&maxRounds, "max-rounds", siftrank.DefaultMaxRounds, "maximum number of refinement rounds (0 = unlimited)")
 
 	// Model parameter flags
 	rootCmd.Flags().StringVarP(&oaiModel, "model", "m", openai.ChatModelGPT4oMini, "OpenAI model name")
@@ -176,7 +178,7 @@ func init() {
 	setFlagGroup(rootCmd, "options", "file", "prompt", "output", "model", "relevance", "profile", "config-file")
 	setFlagGroup(rootCmd, "visualization", "watch", "no-minimap")
 	setFlagGroup(rootCmd, "debug", "trace", "debug", "dry-run", "log")
-	setFlagGroup(rootCmd, "advanced", "template", "json", "base-url", "encoding", "effort", "tokens", "batch-size", "max-trials", "concurrency", "ratio", "no-converge", "elbow-tolerance", "stable-trials", "min-trials", "elbow-method")
+	setFlagGroup(rootCmd, "advanced", "template", "json", "base-url", "encoding", "effort", "tokens", "batch-size", "max-trials", "max-rounds", "concurrency", "ratio", "no-converge", "elbow-tolerance", "stable-trials", "min-trials", "elbow-method")
 }
 
 func run(cmd *cobra.Command, args []string) error {
@@ -261,6 +263,7 @@ func run(cmd *cobra.Command, args []string) error {
 		ElbowTolerance:    elbowTolerance,
 		StableTrials:      stableTrials,
 		MinTrials:         minTrials,
+		MaxRounds:         maxRounds,
 		ElbowMethod:       siftrank.ElbowMethod(elbowMethod),
 	}
 

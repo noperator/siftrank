@@ -570,6 +570,11 @@ func (r *Ranker) rank(documents []document, round int) ([]*RankedDocument, error
 		return results, nil
 	}
 
+	if r.cfg.MaxRounds > 0 && round >= r.cfg.MaxRounds {
+		r.cfg.Logger.Info("Reached max rounds, stopping refinement", "round", round, "max_rounds", r.cfg.MaxRounds)
+		return results, nil
+	}
+
 	r.cfg.Logger.Debug("Top items being sent back into recursion:")
 	for i, doc := range topPortion {
 		r.cfg.Logger.Debug("Recursive item", "rank", i+1, "id", doc.Key, "score", doc.Score, "value", doc.Value)

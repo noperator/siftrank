@@ -28,6 +28,7 @@ const (
 	DefaultStableTrials      = 5
 	DefaultMinTrials         = 5
 	DefaultElbowMethod       = ElbowMethodCurvature
+	DefaultMaxRounds         = 0
 	DefaultEnableConvergence = true
 	DefaultOpenAIModel       = openai.ChatModelGPT4oMini
 )
@@ -123,6 +124,9 @@ type Config struct {
 	// Effort is the reasoning effort level: none, minimal, low, medium, high.
 	Effort string `json:"effort" yaml:"effort"`
 
+	// MaxRounds caps the number of refinement rounds (0 = unlimited).
+	MaxRounds int `json:"max_rounds" yaml:"max_rounds"`
+
 	// Watch enables live terminal visualization (CLI only).
 	Watch bool `json:"-" yaml:"-"`
 
@@ -194,6 +198,7 @@ func NewConfig() *Config {
 		ElbowTolerance:    DefaultElbowTolerance,
 		StableTrials:      DefaultStableTrials,
 		MinTrials:         DefaultMinTrials,
+		MaxRounds:         DefaultMaxRounds,
 		EnableConvergence: DefaultEnableConvergence,
 		OpenAIModel:       DefaultOpenAIModel,
 	}
