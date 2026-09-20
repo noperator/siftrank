@@ -1,0 +1,922 @@
+{
+  "schema_version": 1,
+  "counts": {
+    "receipts": 324,
+    "observations": 7020,
+    "unjudged": 0,
+    "equal_grade": 1863,
+    "exact_model_ties": 130,
+    "known_errors": 1673,
+    "strong_known_errors": 819
+  },
+  "runs": 18,
+  "policy": "closest to 0.5 first; same budget per run; random tie-break expectation",
+  "budget_unit": "pair observations, including equal-grade, unjudged and exact ties",
+  "curve": [
+    {
+      "reviewed": 0,
+      "review_fraction": 0.0,
+      "known_errors_found": 0.0,
+      "random_expected_errors": 0.0,
+      "error_recall": 0.0,
+      "random_error_recall": 0.0
+    },
+    {
+      "reviewed": 54,
+      "review_fraction": 0.007692307692307693,
+      "known_errors_found": 0.3333333333333333,
+      "random_expected_errors": 12.86923076923077,
+      "error_recall": 0.00019924287706714485,
+      "random_error_recall": 0.007692307692307693
+    },
+    {
+      "reviewed": 126,
+      "review_fraction": 0.017948717948717947,
+      "known_errors_found": 4.7887445887445885,
+      "random_expected_errors": 30.028205128205123,
+      "error_recall": 0.0028623697482035794,
+      "random_error_recall": 0.017948717948717944
+    },
+    {
+      "reviewed": 198,
+      "review_fraction": 0.028205128205128206,
+      "known_errors_found": 20.605019103703313,
+      "random_expected_errors": 47.18717948717948,
+      "error_recall": 0.012316209864735991,
+      "random_error_recall": 0.0282051282051282
+    },
+    {
+      "reviewed": 270,
+      "review_fraction": 0.038461538461538464,
+      "known_errors_found": 38.778579083455234,
+      "random_expected_errors": 64.34615384615385,
+      "error_recall": 0.02317906699549028,
+      "random_error_recall": 0.038461538461538464
+    },
+    {
+      "reviewed": 342,
+      "review_fraction": 0.04871794871794872,
+      "known_errors_found": 57.44982422118645,
+      "random_expected_errors": 81.5051282051282,
+      "error_recall": 0.034339404794492795,
+      "random_error_recall": 0.04871794871794872
+    },
+    {
+      "reviewed": 414,
+      "review_fraction": 0.05897435897435897,
+      "known_errors_found": 76.83544664829495,
+      "random_expected_errors": 98.66410256410258,
+      "error_recall": 0.04592674635283619,
+      "random_error_recall": 0.05897435897435898
+    },
+    {
+      "reviewed": 486,
+      "review_fraction": 0.06923076923076923,
+      "known_errors_found": 97.43768579202016,
+      "random_expected_errors": 115.82307692307691,
+      "error_recall": 0.05824129455589968,
+      "random_error_recall": 0.06923076923076922
+    },
+    {
+      "reviewed": 558,
+      "review_fraction": 0.07948717948717948,
+      "known_errors_found": 119.11438296321663,
+      "random_expected_errors": 132.9820512820513,
+      "error_recall": 0.07119807708500694,
+      "random_error_recall": 0.0794871794871795
+    },
+    {
+      "reviewed": 630,
+      "review_fraction": 0.08974358974358974,
+      "known_errors_found": 140.78061090926204,
+      "random_expected_errors": 150.14102564102564,
+      "error_recall": 0.08414860185849495,
+      "random_error_recall": 0.08974358974358974
+    },
+    {
+      "reviewed": 702,
+      "review_fraction": 0.1,
+      "known_errors_found": 161.84618395465253,
+      "random_expected_errors": 167.3,
+      "error_recall": 0.09674009800039003,
+      "random_error_recall": 0.1
+    },
+    {
+      "reviewed": 756,
+      "review_fraction": 0.1076923076923077,
+      "known_errors_found": 177.35939554022718,
+      "random_expected_errors": 180.16923076923075,
+      "error_recall": 0.10601278872697381,
+      "random_error_recall": 0.10769230769230768
+    },
+    {
+      "reviewed": 828,
+      "review_fraction": 0.11794871794871795,
+      "known_errors_found": 199.92989976554887,
+      "random_expected_errors": 197.32820512820516,
+      "error_recall": 0.11950382532310154,
+      "random_error_recall": 0.11794871794871796
+    },
+    {
+      "reviewed": 900,
+      "review_fraction": 0.1282051282051282,
+      "known_errors_found": 221.1341993621659,
+      "random_expected_errors": 214.48717948717947,
+      "error_recall": 0.13217824229657257,
+      "random_error_recall": 0.1282051282051282
+    },
+    {
+      "reviewed": 972,
+      "review_fraction": 0.13846153846153847,
+      "known_errors_found": 242.13328889107288,
+      "random_expected_errors": 231.64615384615382,
+      "error_recall": 0.14472999933716252,
+      "random_error_recall": 0.13846153846153844
+    },
+    {
+      "reviewed": 1044,
+      "review_fraction": 0.14871794871794872,
+      "known_errors_found": 262.8313925453631,
+      "random_expected_errors": 248.8051282051282,
+      "error_recall": 0.15710184850290682,
+      "random_error_recall": 0.14871794871794872
+    },
+    {
+      "reviewed": 1116,
+      "review_fraction": 0.15897435897435896,
+      "known_errors_found": 283.2405758457229,
+      "random_expected_errors": 265.9641025641026,
+      "error_recall": 0.16930100170097007,
+      "random_error_recall": 0.158974358974359
+    },
+    {
+      "reviewed": 1188,
+      "review_fraction": 0.16923076923076924,
+      "known_errors_found": 303.69241681521095,
+      "random_expected_errors": 283.123076923077,
+      "error_recall": 0.18152565260921155,
+      "random_error_recall": 0.16923076923076927
+    },
+    {
+      "reviewed": 1260,
+      "review_fraction": 0.1794871794871795,
+      "known_errors_found": 325.8281048200166,
+      "random_expected_errors": 300.28205128205127,
+      "error_recall": 0.19475678710102606,
+      "random_error_recall": 0.1794871794871795
+    },
+    {
+      "reviewed": 1332,
+      "review_fraction": 0.18974358974358974,
+      "known_errors_found": 351.27829254079256,
+      "random_expected_errors": 317.4410256410256,
+      "error_recall": 0.20996909297118505,
+      "random_error_recall": 0.1897435897435897
+    },
+    {
+      "reviewed": 1404,
+      "review_fraction": 0.2,
+      "known_errors_found": 374.6732448107448,
+      "random_expected_errors": 334.6,
+      "error_recall": 0.22395292576852646,
+      "random_error_recall": 0.2
+    },
+    {
+      "reviewed": 1458,
+      "review_fraction": 0.2076923076923077,
+      "known_errors_found": 391.27818022620653,
+      "random_expected_errors": 347.46923076923076,
+      "error_recall": 0.23387817108559864,
+      "random_error_recall": 0.20769230769230768
+    },
+    {
+      "reviewed": 1530,
+      "review_fraction": 0.21794871794871795,
+      "known_errors_found": 412.7327378031326,
+      "random_expected_errors": 364.6282051282052,
+      "error_recall": 0.246702174419087,
+      "random_error_recall": 0.21794871794871798
+    },
+    {
+      "reviewed": 1602,
+      "review_fraction": 0.2282051282051282,
+      "known_errors_found": 431.05776331791765,
+      "random_expected_errors": 381.78717948717946,
+      "error_recall": 0.2576555668367709,
+      "random_error_recall": 0.2282051282051282
+    },
+    {
+      "reviewed": 1674,
+      "review_fraction": 0.23846153846153847,
+      "known_errors_found": 449.1232650231793,
+      "random_expected_errors": 398.9461538461539,
+      "error_recall": 0.26845383444302406,
+      "random_error_recall": 0.23846153846153847
+    },
+    {
+      "reviewed": 1746,
+      "review_fraction": 0.24871794871794872,
+      "known_errors_found": 470.90879558846945,
+      "random_expected_errors": 416.10512820512827,
+      "error_recall": 0.28147566980781197,
+      "random_error_recall": 0.24871794871794875
+    },
+    {
+      "reviewed": 1818,
+      "review_fraction": 0.258974358974359,
+      "known_errors_found": 494.0530003450656,
+      "random_expected_errors": 433.2641025641026,
+      "error_recall": 0.2953096236372179,
+      "random_error_recall": 0.258974358974359
+    },
+    {
+      "reviewed": 1890,
+      "review_fraction": 0.2692307692307692,
+      "known_errors_found": 516.7824309868874,
+      "random_expected_errors": 450.42307692307696,
+      "error_recall": 0.30889565510274203,
+      "random_error_recall": 0.2692307692307693
+    },
+    {
+      "reviewed": 1962,
+      "review_fraction": 0.2794871794871795,
+      "known_errors_found": 538.2314280018228,
+      "random_expected_errors": 467.5820512820513,
+      "error_recall": 0.32171633472912303,
+      "random_error_recall": 0.2794871794871795
+    },
+    {
+      "reviewed": 2034,
+      "review_fraction": 0.28974358974358977,
+      "known_errors_found": 562.1576320171056,
+      "random_expected_errors": 484.7410256410256,
+      "error_recall": 0.3360177119050243,
+      "random_error_recall": 0.2897435897435897
+    },
+    {
+      "reviewed": 2106,
+      "review_fraction": 0.3,
+      "known_errors_found": 583.3598475209001,
+      "random_expected_errors": 501.8999999999999,
+      "error_recall": 0.3486908831565452,
+      "random_error_recall": 0.29999999999999993
+    },
+    {
+      "reviewed": 2160,
+      "review_fraction": 0.3076923076923077,
+      "known_errors_found": 595.7947042869412,
+      "random_expected_errors": 514.7692307692308,
+      "error_recall": 0.3561235530704968,
+      "random_error_recall": 0.3076923076923077
+    },
+    {
+      "reviewed": 2232,
+      "review_fraction": 0.31794871794871793,
+      "known_errors_found": 615.0893185031343,
+      "random_expected_errors": 531.9282051282051,
+      "error_recall": 0.3676564964155017,
+      "random_error_recall": 0.317948717948718
+    },
+    {
+      "reviewed": 2304,
+      "review_fraction": 0.3282051282051282,
+      "known_errors_found": 636.7271195292165,
+      "random_expected_errors": 549.0871794871795,
+      "error_recall": 0.38059002960503074,
+      "random_error_recall": 0.3282051282051282
+    },
+    {
+      "reviewed": 2376,
+      "review_fraction": 0.3384615384615385,
+      "known_errors_found": 658.6916005320845,
+      "random_expected_errors": 566.246153846154,
+      "error_recall": 0.393718828769925,
+      "random_error_recall": 0.33846153846153854
+    },
+    {
+      "reviewed": 2448,
+      "review_fraction": 0.3487179487179487,
+      "known_errors_found": 681.9834319623029,
+      "random_expected_errors": 583.4051282051282,
+      "error_recall": 0.40764102328888396,
+      "random_error_recall": 0.3487179487179487
+    },
+    {
+      "reviewed": 2520,
+      "review_fraction": 0.358974358974359,
+      "known_errors_found": 704.0219352878776,
+      "random_expected_errors": 600.5641025641025,
+      "error_recall": 0.42081406771540797,
+      "random_error_recall": 0.358974358974359
+    },
+    {
+      "reviewed": 2592,
+      "review_fraction": 0.36923076923076925,
+      "known_errors_found": 721.1483143342226,
+      "random_expected_errors": 617.723076923077,
+      "error_recall": 0.43105099482021675,
+      "random_error_recall": 0.36923076923076925
+    },
+    {
+      "reviewed": 2664,
+      "review_fraction": 0.37948717948717947,
+      "known_errors_found": 742.5034379693122,
+      "random_expected_errors": 634.8820512820512,
+      "error_recall": 0.44381556363975627,
+      "random_error_recall": 0.3794871794871794
+    },
+    {
+      "reviewed": 2736,
+      "review_fraction": 0.38974358974358975,
+      "known_errors_found": 768.2148109106513,
+      "random_expected_errors": 652.0410256410256,
+      "error_recall": 0.45918398739429245,
+      "random_error_recall": 0.38974358974358975
+    },
+    {
+      "reviewed": 2808,
+      "review_fraction": 0.4,
+      "known_errors_found": 789.0156860164925,
+      "random_expected_errors": 669.2,
+      "error_recall": 0.4716172659990989,
+      "random_error_recall": 0.4
+    },
+    {
+      "reviewed": 2862,
+      "review_fraction": 0.4076923076923077,
+      "known_errors_found": 804.7979215229215,
+      "random_expected_errors": 682.0692307692308,
+      "error_recall": 0.4810507600256554,
+      "random_error_recall": 0.4076923076923077
+    },
+    {
+      "reviewed": 2934,
+      "review_fraction": 0.41794871794871796,
+      "known_errors_found": 824.5861832611832,
+      "random_expected_errors": 699.2282051282051,
+      "error_recall": 0.4928787706283223,
+      "random_error_recall": 0.4179487179487179
+    },
+    {
+      "reviewed": 3006,
+      "review_fraction": 0.4282051282051282,
+      "known_errors_found": 841.3590548340549,
+      "random_expected_errors": 716.3871794871795,
+      "error_recall": 0.5029043961948924,
+      "random_error_recall": 0.42820512820512824
+    },
+    {
+      "reviewed": 3078,
+      "review_fraction": 0.43846153846153846,
+      "known_errors_found": 858.8395021645022,
+      "random_expected_errors": 733.546153846154,
+      "error_recall": 0.5133529600505093,
+      "random_error_recall": 0.4384615384615385
+    },
+    {
+      "reviewed": 3150,
+      "review_fraction": 0.44871794871794873,
+      "known_errors_found": 873.9640638772992,
+      "random_expected_errors": 750.7051282051282,
+      "error_recall": 0.5223933436206212,
+      "random_error_recall": 0.4487179487179487
+    },
+    {
+      "reviewed": 3222,
+      "review_fraction": 0.45897435897435895,
+      "known_errors_found": 890.5512208379855,
+      "random_expected_errors": 767.8641025641025,
+      "error_recall": 0.5323079622462555,
+      "random_error_recall": 0.45897435897435895
+    },
+    {
+      "reviewed": 3294,
+      "review_fraction": 0.46923076923076923,
+      "known_errors_found": 909.1670135162395,
+      "random_expected_errors": 785.0230769230769,
+      "error_recall": 0.543435154522558,
+      "random_error_recall": 0.46923076923076923
+    },
+    {
+      "reviewed": 3366,
+      "review_fraction": 0.4794871794871795,
+      "known_errors_found": 927.4490497462634,
+      "random_expected_errors": 802.1820512820512,
+      "error_recall": 0.5543628510139053,
+      "random_error_recall": 0.47948717948717945
+    },
+    {
+      "reviewed": 3438,
+      "review_fraction": 0.4897435897435897,
+      "known_errors_found": 948.069504420588,
+      "random_expected_errors": 819.3410256410257,
+      "error_recall": 0.5666882871611405,
+      "random_error_recall": 0.4897435897435898
+    },
+    {
+      "reviewed": 3510,
+      "review_fraction": 0.5,
+      "known_errors_found": 964.7435672514619,
+      "random_expected_errors": 836.5,
+      "error_recall": 0.5766548519136054,
+      "random_error_recall": 0.5
+    },
+    {
+      "reviewed": 3564,
+      "review_fraction": 0.5076923076923077,
+      "known_errors_found": 977.3977507872245,
+      "random_expected_errors": 849.3692307692307,
+      "error_recall": 0.5842186197174085,
+      "random_error_recall": 0.5076923076923077
+    },
+    {
+      "reviewed": 3636,
+      "review_fraction": 0.517948717948718,
+      "known_errors_found": 996.3195757458916,
+      "random_expected_errors": 866.5282051282052,
+      "error_recall": 0.5955287362497858,
+      "random_error_recall": 0.517948717948718
+    },
+    {
+      "reviewed": 3708,
+      "review_fraction": 0.5282051282051282,
+      "known_errors_found": 1017.1655309602678,
+      "random_expected_errors": 883.6871794871795,
+      "error_recall": 0.6079889605261612,
+      "random_error_recall": 0.5282051282051282
+    },
+    {
+      "reviewed": 3780,
+      "review_fraction": 0.5384615384615384,
+      "known_errors_found": 1036.9858089279144,
+      "random_expected_errors": 900.8461538461539,
+      "error_recall": 0.6198361081457946,
+      "random_error_recall": 0.5384615384615385
+    },
+    {
+      "reviewed": 3852,
+      "review_fraction": 0.5487179487179488,
+      "known_errors_found": 1056.037713164029,
+      "random_expected_errors": 918.0051282051284,
+      "error_recall": 0.6312239767866281,
+      "random_error_recall": 0.5487179487179488
+    },
+    {
+      "reviewed": 3924,
+      "review_fraction": 0.558974358974359,
+      "known_errors_found": 1074.2443737549002,
+      "random_expected_errors": 935.1641025641026,
+      "error_recall": 0.6421066191003587,
+      "random_error_recall": 0.558974358974359
+    },
+    {
+      "reviewed": 3996,
+      "review_fraction": 0.5692307692307692,
+      "known_errors_found": 1090.643138294454,
+      "random_expected_errors": 952.323076923077,
+      "error_recall": 0.6519086301819809,
+      "random_error_recall": 0.5692307692307693
+    },
+    {
+      "reviewed": 4068,
+      "review_fraction": 0.5794871794871795,
+      "known_errors_found": 1107.3593631514682,
+      "random_expected_errors": 969.4820512820512,
+      "error_recall": 0.6619003963846194,
+      "random_error_recall": 0.5794871794871794
+    },
+    {
+      "reviewed": 4140,
+      "review_fraction": 0.5897435897435898,
+      "known_errors_found": 1123.9810883560883,
+      "random_expected_errors": 986.6410256410256,
+      "error_recall": 0.6718356774393833,
+      "random_error_recall": 0.5897435897435898
+    },
+    {
+      "reviewed": 4212,
+      "review_fraction": 0.6,
+      "known_errors_found": 1142.0250371360667,
+      "random_expected_errors": 1003.7999999999998,
+      "error_recall": 0.6826210622451085,
+      "random_error_recall": 0.5999999999999999
+    },
+    {
+      "reviewed": 4266,
+      "review_fraction": 0.6076923076923076,
+      "known_errors_found": 1156.6539364230541,
+      "random_expected_errors": 1016.6692307692308,
+      "error_recall": 0.6913651741919032,
+      "random_error_recall": 0.6076923076923078
+    },
+    {
+      "reviewed": 4338,
+      "review_fraction": 0.617948717948718,
+      "known_errors_found": 1176.5050617682969,
+      "random_expected_errors": 1033.8282051282051,
+      "error_recall": 0.7032307601723233,
+      "random_error_recall": 0.617948717948718
+    },
+    {
+      "reviewed": 4410,
+      "review_fraction": 0.6282051282051282,
+      "known_errors_found": 1192.0651004224533,
+      "random_expected_errors": 1050.9871794871794,
+      "error_recall": 0.7125314407785136,
+      "random_error_recall": 0.6282051282051282
+    },
+    {
+      "reviewed": 4482,
+      "review_fraction": 0.6384615384615384,
+      "known_errors_found": 1208.78795420266,
+      "random_expected_errors": 1068.1461538461538,
+      "error_recall": 0.7225271692783384,
+      "random_error_recall": 0.6384615384615384
+    },
+    {
+      "reviewed": 4554,
+      "review_fraction": 0.6487179487179487,
+      "known_errors_found": 1228.1473198370259,
+      "random_expected_errors": 1085.305128205128,
+      "error_recall": 0.7340988163998959,
+      "random_error_recall": 0.6487179487179486
+    },
+    {
+      "reviewed": 4626,
+      "review_fraction": 0.658974358974359,
+      "known_errors_found": 1245.179515745692,
+      "random_expected_errors": 1102.4641025641026,
+      "error_recall": 0.7442794475467376,
+      "random_error_recall": 0.658974358974359
+    },
+    {
+      "reviewed": 4698,
+      "review_fraction": 0.6692307692307692,
+      "known_errors_found": 1260.8250954927425,
+      "random_expected_errors": 1119.6230769230767,
+      "error_recall": 0.753631258513295,
+      "random_error_recall": 0.6692307692307691
+    },
+    {
+      "reviewed": 4770,
+      "review_fraction": 0.6794871794871795,
+      "known_errors_found": 1276.423520923521,
+      "random_expected_errors": 1136.7820512820513,
+      "error_recall": 0.7629548839949318,
+      "random_error_recall": 0.6794871794871795
+    },
+    {
+      "reviewed": 4842,
+      "review_fraction": 0.6897435897435897,
+      "known_errors_found": 1294.633538683539,
+      "random_expected_errors": 1153.9410256410256,
+      "error_recall": 0.7738395329847813,
+      "random_error_recall": 0.6897435897435897
+    },
+    {
+      "reviewed": 4914,
+      "review_fraction": 0.7,
+      "known_errors_found": 1312.6500222000225,
+      "random_expected_errors": 1171.1,
+      "error_recall": 0.7846085010161521,
+      "random_error_recall": 0.7
+    },
+    {
+      "reviewed": 4968,
+      "review_fraction": 0.7076923076923077,
+      "known_errors_found": 1326.3512737262736,
+      "random_expected_errors": 1183.9692307692308,
+      "error_recall": 0.7927981313366848,
+      "random_error_recall": 0.7076923076923077
+    },
+    {
+      "reviewed": 5040,
+      "review_fraction": 0.717948717948718,
+      "known_errors_found": 1344.545621045621,
+      "random_expected_errors": 1201.128205128205,
+      "error_recall": 0.8036734136554817,
+      "random_error_recall": 0.717948717948718
+    },
+    {
+      "reviewed": 5112,
+      "review_fraction": 0.7282051282051282,
+      "known_errors_found": 1362.3172827172828,
+      "random_expected_errors": 1218.2871794871794,
+      "error_recall": 0.8142960446606592,
+      "random_error_recall": 0.7282051282051282
+    },
+    {
+      "reviewed": 5184,
+      "review_fraction": 0.7384615384615385,
+      "known_errors_found": 1378.357695943903,
+      "random_expected_errors": 1235.446153846154,
+      "error_recall": 0.8238838589025123,
+      "random_error_recall": 0.7384615384615385
+    },
+    {
+      "reviewed": 5256,
+      "review_fraction": 0.7487179487179487,
+      "known_errors_found": 1394.6905334129472,
+      "random_expected_errors": 1252.6051282051283,
+      "error_recall": 0.8336464634865195,
+      "random_error_recall": 0.7487179487179487
+    },
+    {
+      "reviewed": 5328,
+      "review_fraction": 0.7589743589743589,
+      "known_errors_found": 1410.4299198885408,
+      "random_expected_errors": 1269.7641025641024,
+      "error_recall": 0.8430543454205265,
+      "random_error_recall": 0.7589743589743588
+    },
+    {
+      "reviewed": 5400,
+      "review_fraction": 0.7692307692307693,
+      "known_errors_found": 1425.7247897696172,
+      "random_expected_errors": 1286.9230769230767,
+      "error_recall": 0.8521965270589463,
+      "random_error_recall": 0.769230769230769
+    },
+    {
+      "reviewed": 5472,
+      "review_fraction": 0.7794871794871795,
+      "known_errors_found": 1438.7149911166139,
+      "random_expected_errors": 1304.0820512820512,
+      "error_recall": 0.8599611423291177,
+      "random_error_recall": 0.7794871794871795
+    },
+    {
+      "reviewed": 5544,
+      "review_fraction": 0.7897435897435897,
+      "known_errors_found": 1453.3118854438328,
+      "random_expected_errors": 1321.2410256410255,
+      "error_recall": 0.8686861239951182,
+      "random_error_recall": 0.7897435897435897
+    },
+    {
+      "reviewed": 5616,
+      "review_fraction": 0.8,
+      "known_errors_found": 1467.7083857206578,
+      "random_expected_errors": 1338.4,
+      "error_recall": 0.8772913243996759,
+      "random_error_recall": 0.8
+    },
+    {
+      "reviewed": 5670,
+      "review_fraction": 0.8076923076923077,
+      "known_errors_found": 1477.5505581999698,
+      "random_expected_errors": 1351.2692307692307,
+      "error_recall": 0.8831742726837836,
+      "random_error_recall": 0.8076923076923077
+    },
+    {
+      "reviewed": 5742,
+      "review_fraction": 0.8179487179487179,
+      "known_errors_found": 1490.6327960927963,
+      "random_expected_errors": 1368.4282051282053,
+      "error_recall": 0.8909939008325142,
+      "random_error_recall": 0.817948717948718
+    },
+    {
+      "reviewed": 5814,
+      "review_fraction": 0.8282051282051283,
+      "known_errors_found": 1502.149284049284,
+      "random_expected_errors": 1385.5871794871791,
+      "error_recall": 0.8978776354149934,
+      "random_error_recall": 0.828205128205128
+    },
+    {
+      "reviewed": 5886,
+      "review_fraction": 0.8384615384615385,
+      "known_errors_found": 1513.3516749916748,
+      "random_expected_errors": 1402.7461538461537,
+      "error_recall": 0.9045736252191721,
+      "random_error_recall": 0.8384615384615384
+    },
+    {
+      "reviewed": 5958,
+      "review_fraction": 0.8487179487179487,
+      "known_errors_found": 1522.836788766789,
+      "random_expected_errors": 1419.9051282051282,
+      "error_recall": 0.9102431492927608,
+      "random_error_recall": 0.8487179487179487
+    },
+    {
+      "reviewed": 6030,
+      "review_fraction": 0.8589743589743589,
+      "known_errors_found": 1535.1828693528694,
+      "random_expected_errors": 1437.0641025641025,
+      "error_recall": 0.9176227551421814,
+      "random_error_recall": 0.8589743589743589
+    },
+    {
+      "reviewed": 6102,
+      "review_fraction": 0.8692307692307693,
+      "known_errors_found": 1547.2712328521154,
+      "random_expected_errors": 1454.2230769230766,
+      "error_recall": 0.924848316110051,
+      "random_error_recall": 0.869230769230769
+    },
+    {
+      "reviewed": 6174,
+      "review_fraction": 0.8794871794871795,
+      "known_errors_found": 1559.1180079724197,
+      "random_expected_errors": 1471.3820512820512,
+      "error_recall": 0.9319294727868618,
+      "random_error_recall": 0.8794871794871795
+    },
+    {
+      "reviewed": 6246,
+      "review_fraction": 0.8897435897435897,
+      "known_errors_found": 1567.3595633125042,
+      "random_expected_errors": 1488.541025641026,
+      "error_recall": 0.9368556863792613,
+      "random_error_recall": 0.8897435897435899
+    },
+    {
+      "reviewed": 6318,
+      "review_fraction": 0.9,
+      "known_errors_found": 1577.4779745744452,
+      "random_expected_errors": 1505.7,
+      "error_recall": 0.9429037504927945,
+      "random_error_recall": 0.9
+    },
+    {
+      "reviewed": 6372,
+      "review_fraction": 0.9076923076923077,
+      "known_errors_found": 1588.460206264324,
+      "random_expected_errors": 1518.5692307692304,
+      "error_recall": 0.9494681448083228,
+      "random_error_recall": 0.9076923076923075
+    },
+    {
+      "reviewed": 6444,
+      "review_fraction": 0.9179487179487179,
+      "known_errors_found": 1600.1003263729733,
+      "random_expected_errors": 1535.728205128205,
+      "error_recall": 0.9564257778678861,
+      "random_error_recall": 0.9179487179487179
+    },
+    {
+      "reviewed": 6516,
+      "review_fraction": 0.9282051282051282,
+      "known_errors_found": 1608.7785777947543,
+      "random_expected_errors": 1552.887179487179,
+      "error_recall": 0.9616130172114491,
+      "random_error_recall": 0.928205128205128
+    },
+    {
+      "reviewed": 6588,
+      "review_fraction": 0.9384615384615385,
+      "known_errors_found": 1619.8152049910873,
+      "random_expected_errors": 1570.0461538461539,
+      "error_recall": 0.9682099252785937,
+      "random_error_recall": 0.9384615384615385
+    },
+    {
+      "reviewed": 6660,
+      "review_fraction": 0.9487179487179487,
+      "known_errors_found": 1632.000262352027,
+      "random_expected_errors": 1587.2051282051284,
+      "error_recall": 0.9754932829360592,
+      "random_error_recall": 0.9487179487179488
+    },
+    {
+      "reviewed": 6732,
+      "review_fraction": 0.958974358974359,
+      "known_errors_found": 1642.2546540061246,
+      "random_expected_errors": 1604.3641025641025,
+      "error_recall": 0.9816226264232664,
+      "random_error_recall": 0.9589743589743589
+    },
+    {
+      "reviewed": 6804,
+      "review_fraction": 0.9692307692307692,
+      "known_errors_found": 1650.0755667535077,
+      "random_expected_errors": 1621.5230769230766,
+      "error_recall": 0.9862974098945055,
+      "random_error_recall": 0.969230769230769
+    },
+    {
+      "reviewed": 6876,
+      "review_fraction": 0.9794871794871794,
+      "known_errors_found": 1657.5823529411764,
+      "random_expected_errors": 1638.6820512820514,
+      "error_recall": 0.9907844309271825,
+      "random_error_recall": 0.9794871794871796
+    },
+    {
+      "reviewed": 6948,
+      "review_fraction": 0.9897435897435898,
+      "known_errors_found": 1666.6607843137256,
+      "random_expected_errors": 1655.8410256410255,
+      "error_recall": 0.9962108692849525,
+      "random_error_recall": 0.9897435897435897
+    },
+    {
+      "reviewed": 7020,
+      "review_fraction": 1.0,
+      "known_errors_found": 1673.0,
+      "random_expected_errors": 1673.0,
+      "error_recall": 1.0,
+      "random_error_recall": 1.0
+    }
+  ],
+  "at_25_percent": {
+    "reviewed": 1746,
+    "review_fraction": 0.24871794871794872,
+    "known_errors_found": 470.90879558846945,
+    "random_expected_errors": 416.10512820512827,
+    "error_recall": 0.28147566980781197,
+    "random_error_recall": 0.24871794871794875
+  },
+  "at_20_per_run": {
+    "reviewed": 360,
+    "review_fraction": 0.05128205128205128,
+    "known_errors_found": 62.653357422591164,
+    "random_expected_errors": 85.79487179487177,
+    "error_recall": 0.03744970557237966,
+    "random_error_recall": 0.051282051282051266
+  },
+  "by_case": {
+    "development/code-lifetime-priority": {
+      "observations": 1170,
+      "known_errors": 302,
+      "at_25_percent": {
+        "reviewed": 291,
+        "review_fraction": 0.24871794871794872,
+        "known_errors_found": 86.2,
+        "random_expected_errors": 75.11282051282052,
+        "error_recall": 0.285430463576159,
+        "random_error_recall": 0.24871794871794875
+      }
+    },
+    "development/identity-effective-access": {
+      "observations": 1170,
+      "known_errors": 228,
+      "at_25_percent": {
+        "reviewed": 291,
+        "review_fraction": 0.24871794871794872,
+        "known_errors_found": 66.7032967032967,
+        "random_expected_errors": 56.70769230769231,
+        "error_recall": 0.2925583188741083,
+        "random_error_recall": 0.24871794871794875
+      }
+    },
+    "development/telemetry-chain-evidence": {
+      "observations": 1170,
+      "known_errors": 241,
+      "at_25_percent": {
+        "reviewed": 291,
+        "review_fraction": 0.24871794871794872,
+        "known_errors_found": 84.33333333333333,
+        "random_expected_errors": 59.94102564102564,
+        "error_recall": 0.3499308437067773,
+        "random_error_recall": 0.24871794871794872
+      }
+    },
+    "engine/build-impact-heldout": {
+      "observations": 1170,
+      "known_errors": 385,
+      "at_25_percent": {
+        "reviewed": 291,
+        "review_fraction": 0.24871794871794872,
+        "known_errors_found": 77.4029347826087,
+        "random_expected_errors": 95.75641025641025,
+        "error_recall": 0.2010465838509317,
+        "random_error_recall": 0.2487179487179487
+      }
+    },
+    "engine/dependency-advisory-heldout": {
+      "observations": 1170,
+      "known_errors": 212,
+      "at_25_percent": {
+        "reviewed": 291,
+        "review_fraction": 0.24871794871794872,
+        "known_errors_found": 63.5,
+        "random_expected_errors": 52.728205128205126,
+        "error_recall": 0.29952830188679247,
+        "random_error_recall": 0.2487179487179487
+      }
+    },
+    "engine/service-window-policy-heldout": {
+      "observations": 1170,
+      "known_errors": 305,
+      "at_25_percent": {
+        "reviewed": 291,
+        "review_fraction": 0.24871794871794872,
+        "known_errors_found": 92.76923076923077,
+        "random_expected_errors": 75.85897435897436,
+        "error_recall": 0.3041614123581337,
+        "random_error_recall": 0.24871794871794875
+      }
+    }
+  },
+  "limitations": [
+    "retrospective; labels score the review policy after selection",
+    "repeated pairs and seeds are correlated observations",
+    "pair errors are not distinct findings or final-ranking errors",
+    "fixed pair count does not establish equal human reading time",
+    "unknown labels remain in the budget; only known errors are scored"
+  ]
+}

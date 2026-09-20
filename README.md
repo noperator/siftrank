@@ -159,6 +159,8 @@ siftrank \
 
 The default model is `jev-latest` when no model is supplied by a flag or profile. The command above explicitly selects it and clears any reasoning effort inherited from a default profile. Jev does not support reasoning effort or the `--relevance` option.
 
+For an experimental example that retains pair probabilities and tests whether close decisions help find ranking mistakes, see [close-call review](examples/closecalls).
+
 #### Rank JSON objects with a template
 
 For structured data, pass a JSON array and a [Go template](https://pkg.go.dev/text/template) describing what the model should see. This lets you control the ranking input while preserving each complete original object for downstream use.

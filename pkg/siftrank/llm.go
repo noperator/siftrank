@@ -120,6 +120,19 @@ type CompletionOptions struct {
 	// Optional; may be empty if provider doesn't report it.
 	// Useful for debugging or support requests with the provider.
 	RequestID string
+
+	// PairwiseComparisons optionally retains a validated provider comparison matrix.
+	// IDs refer to the supplied RankingInput, before ordering. An empty slice means
+	// no comparisons are available; these probabilities are not calibrated errors.
+	PairwiseComparisons []PairwiseComparison
+}
+
+// PairwiseComparison records the probability that FirstID should rank ahead of
+// SecondID under the supplied criterion. It does not change ranking scores.
+type PairwiseComparison struct {
+	FirstID     string  `json:"first_id"`
+	SecondID    string  `json:"second_id"`
+	Probability float64 `json:"probability"`
 }
 
 // Usage tracks token consumption for LLM calls

@@ -1,0 +1,442 @@
+{
+  "schema_version": 1,
+  "description": "Complete ordinal pairwise runs from three historical captured-traffic cases; all seeds, receipts, rounds and wire responses retained. No calls or cases selected by review outcome.",
+  "dataset": {
+    "source_url": "https://www.stratosphereips.org/datasets-ctu13",
+    "license": "CC-BY-2.0",
+    "license_source": "https://www.stratosphereips.org/datasets-overview",
+    "credit": "Sebastian Garcia, Martin Grill, Jan Stiborek and Alejandro Zunino. An empirical comparison of botnet detection methods. Computers & Security 45 (2014), 100-123. doi:10.1016/j.cose.2014.05.011",
+    "transformations": "Source addresses hashed; raw flows aggregated into host/time windows; representatives bounded at three records; model observations added. Full original flows are not redistributed.",
+    "license_url": "https://creativecommons.org/licenses/by/2.0/"
+  },
+  "model": "jev-1.13.0",
+  "implementation_commit": "0129654d498fd28fbef285b25840f0ac3ca63f0c",
+  "source_manifest": {
+    "batch_size": 8,
+    "commit": "0129654d498fd28fbef285b25840f0ac3ca63f0c",
+    "concurrency": 1,
+    "convergence": false,
+    "fixture_description": "Public captured traffic. Labels are local scoring metadata, not model input. Half heuristic-priority, half hash-sampled candidates; conditional exploratory ranking benchmark.",
+    "fixture_sha256": "83e3988c632e3e614057617c4f084657341ef7df60f12ad7b3dfe89ed6955058",
+    "go_version": "go1.26.3",
+    "limitations": "Selected benchmark cases; consult fixture provenance before making population accuracy claims. Initial shuffle is seeded; refined subsets can differ by mode and score ties use original input order. This measures complete adapters, not an isolated model architecture.",
+    "max_http_calls": 3000,
+    "mode_order": "cyclic rotation by case index plus seed index",
+    "model": "jev-1.13.0",
+    "modes": [
+      "pairwise",
+      "pairwise-expected"
+    ],
+    "openai_effort": "none",
+    "openai_model": "gpt-5.6-luna",
+    "overall_timeout_minutes": 15,
+    "refinement_ratio": 0.5,
+    "request_timeout_seconds": 25,
+    "seeds": [
+      1,
+      2
+    ],
+    "source_sha256": {
+      "go.mod": "527448a26f342127523316631178af2fa836d4228dec7cf2febe117d38e2c3d3",
+      "go.sum": "b42eb35e404293c82ca25580c43a7af16cfd1fae9700154d08abab4b797f681a",
+      "pkg/siftrank/batch.go": "b463ae06326f6f24c991050bdd261f69a68175e23db02477c66cbae86f3ceea9",
+      "pkg/siftrank/comparisons.go": "845f06d2ae69e008efbd781ec33798f988a959eeddbae84889bfddc43f391817",
+      "pkg/siftrank/comparisons_test.go": "4262b84c79464e20e01f31f1054b91ba18aed30ee5909d226b9c3f50cd9c0dd6",
+      "pkg/siftrank/config.go": "1070f0f49e6c57d1b5e3696018b4a4553a9c327d145c4f6de37658749ab1bb3a",
+      "pkg/siftrank/convergence.go": "31f2bb47dff31aa9f8f31e292703bc188012633cefaabba0eb967fe592f96ef3",
+      "pkg/siftrank/expected_ranks_test.go": "bda763d0569daf8f9339f8a9ff01467b71a2a90ae1e60438b08b834eca33acc9",
+      "pkg/siftrank/jev_choice.go": "9b768e81e501be1c43f9715095f3fd233f42999e3f3c08e6f8545e3d4ba9f8e6",
+      "pkg/siftrank/jev_choice_limits_test.go": "2072aef89eeace5c7bb794049f9df210a0dfb12fa30aebc209ffca28ed42112b",
+      "pkg/siftrank/jev_choice_test.go": "a219fcac3a7c5bf7e5cbaf92d94ce6d7b4042bd33269c859eb558aaddb2fb1ea",
+      "pkg/siftrank/jev_expected_ranks_test.go": "0c71e00e045fd1897ca334920b6422696fd538a9e6f68112ca1d0a41eb8246fd",
+      "pkg/siftrank/jev_live_benchmark_test.go": "2a6b7fba4386ec011eb1773808fb7e69379d00f71e71eef837d105690edd690e",
+      "pkg/siftrank/jev_provider.go": "135798ecd187f9282a36b666b26c2bcda4934bea348950460df071cab3ca60bd",
+      "pkg/siftrank/jev_provider_test.go": "c62267e39b52d0e8cb0c978bb23c6caa3d6949585b2390f4d5b79e7a7e70d5d7",
+      "pkg/siftrank/llm.go": "a1409dd90608bfe0e77e4ada7270de6050f142c6fdc3cd0640b3c7037650a155",
+      "pkg/siftrank/loader.go": "990903c926ee4e9b8ddc2814c9500a70e9a9cede5f06c1be80cd2009d17b8ed2",
+      "pkg/siftrank/openai_provider.go": "3a4248c2e2bec38337e9081db5e523fc142cd98aa52838bf9d548eb2ad58e179",
+      "pkg/siftrank/siftrank.go": "e6b717db3bc3c3efbddf1dbc6c30e07a50294295a731ad697a61ba34d4da5e08",
+      "pkg/siftrank/siftrank_test.go": "41cab3632ee793a827f873fbb9954687e232c60d09b727405fb3007befb557f8",
+      "pkg/siftrank/viz.go": "aae51b1e7b96dbe6bb872a2bc0962b6b513f8cda6c59a4a537b74f0416786c77",
+      "scripts/inspect_comparisons.py": "5806592916dd21e0f1b43d63f7fb24dd73a5b58e09d4b6240883db86b71cf409"
+    },
+    "started_at": "2026-09-20T09:42:26.169427Z",
+    "trials": 3
+  },
+  "selection": {
+    "cohort": "Publisher-labeled normal and botnet flows in the source topology; unknown/background flows excluded before aggregation. This is a label-conditioned cohort, not all captured traffic.",
+    "candidate_policy": "15-minute source-host windows; half heuristic volume/fanout/failed-connection priority, half stable hash sample; no labels used for selecting windows within the known cohort.",
+    "captures": {
+      "ctu-42": {
+        "all_candidates": 133,
+        "selected_candidates": 128,
+        "known_positive_candidates_before_selection": 20,
+        "known_positive_candidates_selected": 20,
+        "units_before_selection": [
+          "hb1257340/c2",
+          "hb1257340/dns",
+          "hb1257340/http",
+          "hb1257340/icmp",
+          "hb1257340/other",
+          "hb1257340/spam",
+          "hb1257340/udp"
+        ],
+        "units_selected": [
+          "hb1257340/c2",
+          "hb1257340/dns",
+          "hb1257340/http",
+          "hb1257340/icmp",
+          "hb1257340/other",
+          "hb1257340/spam",
+          "hb1257340/udp"
+        ],
+        "units_lost_at_selection": [],
+        "records_before_selection": 71219,
+        "records_selected": 70820,
+        "source": {
+          "path": "capture20110810.binetflow",
+          "sha256": "be09f7f6a06beef0134152dc88bff85f0027db4affe07b3fbe956bbb49be5430",
+          "rows": 2824636,
+          "outside_topology_rows": 2753417,
+          "known_positive_rows_outside_topology": 0,
+          "truth_kind": "publisher From-Botnet labels; host/behavior groups, not independent incidents",
+          "window_seconds": 900,
+          "aggregation": "source host",
+          "cohort": "publisher-known normal and botnet flows only",
+          "time_note": "naive publisher timestamps treated as nominal UTC for within-capture ordering only",
+          "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-42/detailed-bidirectional-flow-labels/capture20110810.binetflow"
+        }
+      },
+      "ctu-45": {
+        "all_candidates": 93,
+        "selected_candidates": 64,
+        "known_positive_candidates_before_selection": 15,
+        "known_positive_candidates_selected": 9,
+        "units_before_selection": [
+          "hb1257340/c2",
+          "hb1257340/dns",
+          "hb1257340/http",
+          "hb1257340/icmp",
+          "hb1257340/other",
+          "hb1257340/spam",
+          "hb1257340/udp"
+        ],
+        "units_selected": [
+          "hb1257340/c2",
+          "hb1257340/dns",
+          "hb1257340/http",
+          "hb1257340/icmp",
+          "hb1257340/other",
+          "hb1257340/spam",
+          "hb1257340/udp"
+        ],
+        "units_lost_at_selection": [],
+        "records_before_selection": 27775,
+        "records_selected": 25763,
+        "source": {
+          "path": "capture20110815.binetflow",
+          "sha256": "30353fcffe971e97839ccffaa1675535490420f1ba1f65e5c90f6a815a8ab2c0",
+          "rows": 1121076,
+          "outside_topology_rows": 1093301,
+          "known_positive_rows_outside_topology": 0,
+          "truth_kind": "publisher From-Botnet labels; host/behavior groups, not independent incidents",
+          "window_seconds": 900,
+          "aggregation": "source host",
+          "cohort": "publisher-known normal and botnet flows only",
+          "time_note": "naive publisher timestamps treated as nominal UTC for within-capture ordering only",
+          "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-45/detailed-bidirectional-flow-labels/capture20110815.binetflow"
+        }
+      },
+      "ctu-51": {
+        "all_candidates": 222,
+        "selected_candidates": 128,
+        "known_positive_candidates_before_selection": 128,
+        "known_positive_candidates_selected": 67,
+        "units_before_selection": [
+          "h02539f92/c2",
+          "h02539f92/dns",
+          "h02539f92/http",
+          "h02539f92/icmp",
+          "h02539f92/other",
+          "h02539f92/udp",
+          "h20106aca/c2",
+          "h20106aca/dns",
+          "h20106aca/http",
+          "h20106aca/icmp",
+          "h20106aca/other",
+          "h20106aca/udp",
+          "h22a1b8b4/c2",
+          "h22a1b8b4/dns",
+          "h22a1b8b4/http",
+          "h22a1b8b4/icmp",
+          "h22a1b8b4/other",
+          "h22a1b8b4/udp",
+          "h7132219f/c2",
+          "h7132219f/dns",
+          "h7132219f/http",
+          "h7132219f/icmp",
+          "h7132219f/other",
+          "h7132219f/udp",
+          "h7986cefa/c2",
+          "h7986cefa/dns",
+          "h7986cefa/http",
+          "h7986cefa/icmp",
+          "h7986cefa/udp",
+          "h8ae7150b/c2",
+          "h8ae7150b/dns",
+          "h8ae7150b/http",
+          "h8ae7150b/icmp",
+          "h8ae7150b/udp",
+          "hb1257340/c2",
+          "hb1257340/dns",
+          "hb1257340/http",
+          "hb1257340/icmp",
+          "hb1257340/other",
+          "hb1257340/udp",
+          "hb8bd8f6d/c2",
+          "hb8bd8f6d/dns",
+          "hb8bd8f6d/http",
+          "hb8bd8f6d/icmp",
+          "hb8bd8f6d/udp",
+          "hc394e6f8/c2",
+          "hc394e6f8/dns",
+          "hc394e6f8/http",
+          "hc394e6f8/icmp",
+          "hc394e6f8/other",
+          "hc394e6f8/udp",
+          "hec560039/c2",
+          "hec560039/dns",
+          "hec560039/http",
+          "hec560039/icmp",
+          "hec560039/other",
+          "hec560039/udp"
+        ],
+        "units_selected": [
+          "h02539f92/c2",
+          "h02539f92/dns",
+          "h02539f92/http",
+          "h02539f92/icmp",
+          "h02539f92/udp",
+          "h20106aca/c2",
+          "h20106aca/dns",
+          "h20106aca/http",
+          "h20106aca/icmp",
+          "h20106aca/other",
+          "h20106aca/udp",
+          "h22a1b8b4/c2",
+          "h22a1b8b4/dns",
+          "h22a1b8b4/http",
+          "h22a1b8b4/icmp",
+          "h22a1b8b4/other",
+          "h22a1b8b4/udp",
+          "h7132219f/c2",
+          "h7132219f/dns",
+          "h7132219f/http",
+          "h7132219f/icmp",
+          "h7132219f/other",
+          "h7132219f/udp",
+          "h7986cefa/c2",
+          "h7986cefa/dns",
+          "h7986cefa/icmp",
+          "h7986cefa/udp",
+          "h8ae7150b/c2",
+          "h8ae7150b/dns",
+          "h8ae7150b/http",
+          "h8ae7150b/icmp",
+          "h8ae7150b/udp",
+          "hb1257340/c2",
+          "hb1257340/dns",
+          "hb1257340/http",
+          "hb1257340/icmp",
+          "hb1257340/other",
+          "hb1257340/udp",
+          "hb8bd8f6d/c2",
+          "hb8bd8f6d/dns",
+          "hb8bd8f6d/http",
+          "hb8bd8f6d/icmp",
+          "hb8bd8f6d/udp",
+          "hc394e6f8/c2",
+          "hc394e6f8/dns",
+          "hc394e6f8/http",
+          "hc394e6f8/icmp",
+          "hc394e6f8/other",
+          "hc394e6f8/udp",
+          "hec560039/c2",
+          "hec560039/dns",
+          "hec560039/icmp",
+          "hec560039/udp"
+        ],
+        "units_lost_at_selection": [
+          "h02539f92/other",
+          "h7986cefa/http",
+          "hec560039/http",
+          "hec560039/other"
+        ],
+        "records_before_selection": 122157,
+        "records_selected": 118713,
+        "source": {
+          "path": "capture20110818.binetflow",
+          "sha256": "840a7030d57cb965a4e6e19c61e89b20647a4aefe5608c2da90623710e7cd74f",
+          "rows": 1309791,
+          "outside_topology_rows": 1187634,
+          "known_positive_rows_outside_topology": 0,
+          "truth_kind": "publisher From-Botnet labels; host/behavior groups, not independent incidents",
+          "window_seconds": 900,
+          "aggregation": "source host",
+          "cohort": "publisher-known normal and botnet flows only",
+          "time_note": "naive publisher timestamps treated as nominal UTC for within-capture ordering only",
+          "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-51/detailed-bidirectional-flow-labels/capture20110818.binetflow"
+        }
+      }
+    },
+    "counts": {
+      "windows_before_selection": 448,
+      "windows_selected": 320,
+      "known_positive_windows_before_selection": 163,
+      "known_positive_windows_selected": 96,
+      "known_positive_windows_lost": 67,
+      "host_behavior_groups_lost": 4
+    }
+  },
+  "included_mode": "pairwise",
+  "excluded_modes": [
+    "pairwise-expected"
+  ],
+  "runs": [
+    "network/ctu-42/seed-1",
+    "network/ctu-42/seed-2",
+    "network/ctu-45/seed-1",
+    "network/ctu-45/seed-2",
+    "network/ctu-51/seed-1",
+    "network/ctu-51/seed-2"
+  ],
+  "counts": {
+    "cases": 3,
+    "runs": 6,
+    "source_candidates": 320,
+    "receipts": 498,
+    "wire_calls": 498,
+    "pair_observations": 13062
+  },
+  "files": {
+    "captures.jsonl.gz": {
+      "bytes": 634264,
+      "sha256": "dbe2fe8b399d9f0db57579760f912d14b8dd4385e8dd550b785b9825ab0ff70d",
+      "uncompressed_bytes": 5355209,
+      "uncompressed_sha256": "1b30f561d8cd40cf7d6b87560c6e1f788b67bd8a7003daa863a2da7ca580d5d9",
+      "records": 498
+    },
+    "input.json": {
+      "bytes": 320543,
+      "sha256": "6a43d1d50d6660a439af8a96bc6aad84eefc2ea2d4c833b9e1f9c2ff2ed14e72"
+    },
+    "labels.json": {
+      "bytes": 311391,
+      "sha256": "9fbff602246b5331536403cb44f6d99277f26527b3d8bdae6eadfbaabbe38ceb"
+    },
+    "rankings.json": {
+      "bytes": 742438,
+      "sha256": "76ff678361c6828bcc14a00bfd28ffe42d4cf41d9e45aaeebe760c3455735b6a"
+    },
+    "wire.jsonl.gz": {
+      "bytes": 827805,
+      "sha256": "3b299f02f6e4094bdba1a33aadc7b8d45ead7bda033b8e4fee0ec23132ab5b93",
+      "uncompressed_bytes": 15132222,
+      "uncompressed_sha256": "ffd8efeece3b64d60e55acae357f6f813945271049224e61304783bb51d971d5",
+      "records": 498
+    }
+  },
+  "original_files": {
+    "2026-09-20-network-engine/fixture.json": {
+      "bytes": 329058,
+      "sha256": "83e3988c632e3e614057617c4f084657341ef7df60f12ad7b3dfe89ed6955058"
+    },
+    "2026-09-20-network-engine/results.json": {
+      "bytes": 1485920,
+      "sha256": "8edecd27993fa18b1d5608e1739cc485a32b09b73fce3f3ee6ba007724200b0b"
+    },
+    "2026-09-20-network-engine/http.jsonl": {
+      "bytes": 30183032,
+      "sha256": "4b4e8bd1f3760335d8235e7fa15a12a5181ca24a2ae3014634e92da1ae54adff"
+    },
+    "2026-09-20-network-engine/manifest.json": {
+      "bytes": 3430,
+      "sha256": "56b64c6311ede719bd48878700076efd46a8411e8ec27649a6b6dd4f4e16bd79"
+    },
+    "2026-09-20-network-labeled/truth.json": {
+      "bytes": 440938,
+      "sha256": "1a0622ae1aabe32789892c44ea3c2d5bb15c39eeade11d6c6b140d0f74169131"
+    },
+    "2026-09-20-network-labeled/freeze-source.py": {
+      "bytes": 12122,
+      "sha256": "b6d81edfbf51679ab576bf2018c89e6feb03a4cf0dabdb30084ecc1d6391802e"
+    },
+    "2026-09-20-network-results/pair-review.json": {
+      "bytes": 14983528,
+      "sha256": "7cb5096440d3a03304929a82977ef2a4b0fba5a32a49ac4df7babecd6615bcc5"
+    },
+    "2026-09-20-network-results/summary.json": {
+      "bytes": 2693,
+      "sha256": "c0be9220a51b834bd7f76af6e30c7bc5760f01a8bab76b22e30715cbd1dd10ef"
+    }
+  },
+  "selected_receipts": [
+    {
+      "path": "comparisons-case0-seed1-pairwise.jsonl",
+      "run_id": "network/ctu-42/seed-1",
+      "records": 99,
+      "bytes": 1067061,
+      "sha256": "2a1cb27a52fa8edeb796eda718fef84da6c12fc5f364b62fd8d041ed4ec302cb"
+    },
+    {
+      "path": "comparisons-case0-seed2-pairwise.jsonl",
+      "run_id": "network/ctu-42/seed-2",
+      "records": 99,
+      "bytes": 1065748,
+      "sha256": "ffd1f1e48f7b16f70a97d64280b80b8eb0604085c21d965906f16ec2e269f7ea"
+    },
+    {
+      "path": "comparisons-case1-seed1-pairwise.jsonl",
+      "run_id": "network/ctu-45/seed-1",
+      "records": 51,
+      "bytes": 521261,
+      "sha256": "2db3eb886ac9ac08c51b9551cac3a73851b646eebd3e019b928bc1d72b76cdc7"
+    },
+    {
+      "path": "comparisons-case1-seed2-pairwise.jsonl",
+      "run_id": "network/ctu-45/seed-2",
+      "records": 51,
+      "bytes": 520398,
+      "sha256": "d978eaa5bc28a5c32f0fad5e9c96456386ffd6041f1a424919ab1908a6fab553"
+    },
+    {
+      "path": "comparisons-case2-seed1-pairwise.jsonl",
+      "run_id": "network/ctu-51/seed-1",
+      "records": 99,
+      "bytes": 1070429,
+      "sha256": "c2183546b1567af317b0cd74195a8a6dcb588ad0ffad96bf32f62ccab49111fc"
+    },
+    {
+      "path": "comparisons-case2-seed2-pairwise.jsonl",
+      "run_id": "network/ctu-51/seed-2",
+      "records": 99,
+      "bytes": 1075008,
+      "sha256": "5974946289174aee721a3528aa96668865059052eceff5c702fbcef49b0a4970"
+    }
+  ],
+  "limitations": [
+    "Exploratory, retrospective analysis of three historical controlled malware captures from 2011, not live production traffic or a fresh holdout.",
+    "Labels define a restricted normal/botnet cohort before ranking; all unknown/background flows are excluded. Candidate selection then loses 67 of 163 known-positive windows and four host/behavior groups.",
+    "Review queues use only model preferences and stable identities. Equal-grade and unknown pairs consume budget; only known final-order errors are scored.",
+    "Unique pairs within a run are the network review unit. Synthetic replay uses individual pair observations and preference errors; do not pool these outcomes.",
+    "Repeated seeds and pairs sharing hosts, windows and contexts are correlated. Pair preferences are not calibrated error confidence.",
+    "An ordering error is not an independently useful finding, recovered incident or verified causal relationship. No analyst study or time-savings claim.",
+    "Raw source files remain external. Their hashes and representative byte references are retained, but this offline verification checks the bundled normalized evidence and recorded model responses.",
+    "All original selected receipt/wire fields are preserved; case_id, run_id, receipt_index and source_http_line add scoped references. Labels never enter request state."
+  ],
+  "verification_at_packaging": {
+    "original_full_source_hashes_verified": 3,
+    "representative_source_byte_spans_verified": 889,
+    "all_six_original_review_curves_match": true
+  }
+}

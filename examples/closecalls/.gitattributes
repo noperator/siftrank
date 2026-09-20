@@ -1,0 +1,5 @@
+# keep retained data available while folding generated artifacts in code review.
+network/*.json linguist-generated=true
+data/labels.json linguist-generated=true
+data/provenance.json linguist-generated=true
+results.json linguist-generated=true

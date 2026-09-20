@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "label_note": "Hand-authored synthetic relevance grades defined before the recorded model answers. These are not independently reviewed real-world judgments. Identity and C-lifetime cases have manual adjudications; other cases also have deterministic grading checks in the original experiment.",
+  "cases": {
+    "development/identity-effective-access": {
+      "criterion": "Prioritize these independent identity configurations for review of effective access. Evaluate the named subject at 2026-01-15T12:00:00Z, using only the listed rules. A rule applies only to its exact resource and action unless it explicitly says all; applicable explicit denies override allows. Assume no unlisted grants, memberships, trust, or rules. Highest priority: the subject can currently perform identity.write on resource Cedar (environment production), directly or through an explicitly permitted role-assumption chain. Next: it can identity.write on resource Birch (environment staging), but not Cedar. Next: it can identity.read on Cedar, but neither of those writes. Lowest: none of those abilities. Expired sessions and unsatisfied conditions cannot grant access.",
+      "grades": {
+        "d0e4435ce38": 3,
+        "d62a6a37aa2": 1,
+        "de81e650914": 1,
+        "d8a75fe88b7": 0,
+        "d3536dd1fd8": 2,
+        "ddf074042c2": 2,
+        "d1b61ae671f": 3,
+        "dd05a65b8f0": 1,
+        "d6168fa405d": 0,
+        "d490a0b733e": 0,
+        "d94b20907fb": 3,
+        "d3d40ae02eb": 2,
+        "dcd0cbcd235": 1,
+        "d86433892d7": 1,
+        "d8d36f678cf": 3,
+        "dd914e857d8": 3,
+        "d01ea622a1e": 1,
+        "d1b1d1ce9ff": 0,
+        "d9526bf2e5e": 0,
+        "d29f9738170": 0,
+        "d667a107bac": 3,
+        "d78e6b6cec7": 2,
+        "dd99245b707": 2,
+        "d52ec0fae26": 2
+      },
+      "label_source": {
+        "fixture": "benchmarks/2026-09-20-evidence-development/fixture.json",
+        "fixture_sha256": "c1db554ae1374276aec5dd16698bcfb6836e5798fc00f63b573e9a99395b6566",
+        "case_name": "identity-effective-access"
+      }
+    },
+    "development/code-lifetime-priority": {
+      "criterion": "Prioritize the C snippets for memory-lifetime review. Treat each snippet independently. All allocations succeed. consume(int x) only uses its integer argument; choose() returns either 0 or 1; release(int *p) is exactly free(p); touch(int *p) is exactly *p = 7. Prioritize in this order: an unconditional write through a pointer to freed storage; then an unconditional read from freed storage with no such write; then a read or write from freed storage possible only for some choose() outcomes; then snippets with no read or write from freed storage. A double-free alone is outside this particular criterion. Use C pointer aliasing and control flow, not variable names. Ignore allocation leaks and uninitialized values.",
+      "grades": {
+        "d51d5227fcd": 3,
+        "dd45135cbd9": 1,
+        "dc3f5ff4d95": 1,
+        "da7408c7cc5": 0,
+        "dac0dfe876e": 2,
+        "d23125b721e": 2,
+        "d46eaa3b65d": 3,
+        "d74aeb865e2": 1,
+        "d7922dcc26f": 0,
+        "d998a1c6d16": 0,
+        "d79e8b7800a": 3,
+        "d762867de93": 2,
+        "d8dd61f4fb4": 1,
+        "d8fd59dd73d": 1,
+        "d1d7db0d383": 3,
+        "d033980225d": 3,
+        "dc4ed767b15": 1,
+        "d15928bc7b5": 0,
+        "d80b372ce58": 0,
+        "dae9e939c6d": 0,
+        "d3f7158f44c": 3,
+        "dcece33e6d1": 2,
+        "d411eb82a67": 2,
+        "d27ff39ee2e": 2
+      },
+      "label_source": {
+        "fixture": "benchmarks/2026-09-20-evidence-development/fixture.json",
+        "fixture_sha256": "c1db554ae1374276aec5dd16698bcfb6836e5798fc00f63b573e9a99395b6566",
+        "case_name": "code-lifetime-priority"
+      }
+    },
+    "development/telemetry-chain-evidence": {
+      "criterion": "Rank the independent telemetry bundles by strength of this specified chain. The target chain is an accepted interactive login for account morgan on endpoint Larch, followed within 120 seconds by a process on that same endpoint and session_id, followed within 30 seconds of that process by a network connection on the same endpoint and process_guid to destination 203.0.113.42:443. Timestamps are UTC, with interval endpoints inclusive. A process event is eligible only when parent_image=sshd; its image and command text are otherwise irrelevant. Highest: all three linked stages exist. Next: the accepted login and eligible process link exists, but no qualifying connection. Next: at least one accepted target login exists, but no eligible linked process. Lowest: no accepted target login exists. Do not join by numeric pid alone or borrow facts between bundles. Events may appear out of chronological order.",
+      "grades": {
+        "dd59cc48dfb": 3,
+        "dfea85792c7": 1,
+        "d1e66e7734c": 1,
+        "db39419bcb2": 0,
+        "da7455f6a24": 2,
+        "d9f5a8ef9ce": 2,
+        "dba74f38f65": 3,
+        "d6f95852c4a": 1,
+        "d457a1c4163": 0,
+        "d5feb229e12": 0,
+        "de2bfd6e014": 3,
+        "d365addc797": 2,
+        "d2865f2c6a3": 1,
+        "dc01c39f4da": 1,
+        "d852b9bee53": 3,
+        "d9a52f21dc4": 3,
+        "d2128024d1b": 1,
+        "d926fd37218": 0,
+        "ded076918f8": 0,
+        "da33a4210f4": 0,
+        "d0917e83578": 3,
+        "d43fee895c4": 2,
+        "dfb7e46edfb": 2,
+        "de04c526406": 2
+      },
+      "label_source": {
+        "fixture": "benchmarks/2026-09-20-evidence-development/fixture.json",
+        "fixture_sha256": "c1db554ae1374276aec5dd16698bcfb6836e5798fc00f63b573e9a99395b6566",
+        "case_name": "telemetry-chain-evidence"
+      }
+    },
+    "engine/build-impact-heldout": {
+      "criterion": "Prioritize independent build-change records by the strongest impacted output. An edge \"A uses B\" means a change to B can affect A, transitively. A change propagates toward users, never toward its dependencies. The changed node is listed explicitly; consider only listed edges and output labels, and assume every listed dependency is active. Highest: some output labeled production is impacted. Next: no production output is impacted, but an output labeled staging is. Next: no production or staging output is impacted, but an output labeled development is. Lowest: none of the labeled outputs is impacted. Cycles are allowed. A changed output impacts itself. Node names do not imply environment labels.",
+      "grades": {
+        "dca0a7aeff4": 3,
+        "df985cc869f": 1,
+        "d1a5824b21f": 1,
+        "de8ca73071b": 0,
+        "d2f209482c4": 2,
+        "dd6424b3e55": 2,
+        "d9824b7d2fa": 3,
+        "d6a5180858e": 1,
+        "dd4fec58dc8": 0,
+        "d93acc14cdb": 0,
+        "d0eeb38a0a8": 3,
+        "d22d8a69ecb": 2,
+        "d11275b5458": 1,
+        "d7a0e8bb610": 1,
+        "dfb25d79351": 3,
+        "db67234d13d": 3,
+        "d30101fedea": 1,
+        "d4a8cba163e": 0,
+        "d1d6fbf1c31": 0,
+        "d0a130f1a0e": 0,
+        "de35ba56563": 3,
+        "d829bc59e43": 2,
+        "dedb331acf2": 2,
+        "d54b5106df6": 2
+      },
+      "label_source": {
+        "fixture": "benchmarks/2026-09-20-evidence-engine/fixture.json",
+        "fixture_sha256": "e37575e46ea0e09d679702c56e7fc3b01bca7ee340d1f9099ffc518b9e38300f",
+        "case_name": "build-impact-heldout"
+      }
+    },
+    "engine/service-window-policy-heldout": {
+      "criterion": "Prioritize these independent service snapshots under the following exact operational policy. Evaluate only environment=production, region=east, and the currently serving revision in deployment.serving_revision. A matching observation must cover exactly [2026-03-12T12:00:00Z,2026-03-12T12:05:00Z]. Do not combine observations. A confirmed breach is a matching observation with at least 100 requests and an error rate strictly greater than 2 percent. A provisional breach is a matching observation with 1 to 99 requests and an error rate strictly greater than 2 percent. A rollback is eligible only if rollback.from_revision equals the serving revision, rollback.ready is true, rollback.target_health is passing, and rollback.valid_until is later than 2026-03-12T12:05:00Z. Highest priority: confirmed breach with eligible rollback. Next: confirmed breach without eligible rollback. Next: provisional breach and no confirmed breach. Lowest: neither breach. Ignore metric rows and rollback information that do not meet the listed conditions.",
+      "grades": {
+        "db2092cb655": 1,
+        "d0fe18f9427": 0,
+        "d0d0a775851": 0,
+        "d091ac63900": 1,
+        "d907f196f31": 1,
+        "de85ab0e82e": 1,
+        "df4573552aa": 2,
+        "d754e1644e1": 3,
+        "d51645c5533": 2,
+        "dd94cb2e0dc": 2,
+        "dfc6ea3c12d": 2,
+        "d8a1f60d286": 0,
+        "d5e186e9f53": 0,
+        "d40176a2f2c": 2,
+        "d0988c30c2d": 1,
+        "d5995d18aa1": 3,
+        "dc1276c8b52": 3,
+        "dac97bb8139": 2,
+        "d83d01b12c1": 0,
+        "d55a5f1fcab": 3,
+        "d3bec408478": 1,
+        "dadf58c7a11": 3,
+        "d34fde77876": 3,
+        "d945fb1c2d0": 0
+      },
+      "label_source": {
+        "fixture": "benchmarks/2026-09-20-evidence-engine/fixture.json",
+        "fixture_sha256": "e37575e46ea0e09d679702c56e7fc3b01bca7ee340d1f9099ffc518b9e38300f",
+        "case_name": "service-window-policy-heldout"
+      }
+    },
+    "engine/dependency-advisory-heldout": {
+      "criterion": "Prioritize these independent dependency snapshots for a specific advisory affecting package identity (registry=npm, name=cedar-core), stable versions at least 2.4.0 and strictly below 2.7.3. Compare each numeric SemVer component as an integer; all versions here are stable releases. A package is reachable from an application only by following enabled dependency edges in the listed direction. A runtime path contains only edges with kind=runtime. A build path contains at least one edge with kind=build. Use installed package identity, not a local alias or node ID. Highest: an affected package is reachable by a runtime path from an application with environment=production. Next: an affected package is reachable by a runtime path from staging, but not production. Next: an affected package is reachable by any enabled path from an application, but neither prior condition applies. Lowest: no affected package is reachable from any application. Disabled edges cannot be used. Unlisted dependencies and applications do not exist.",
+      "grades": {
+        "dc75da13e1c": 1,
+        "d023fbb7319": 0,
+        "deaee9301d3": 0,
+        "dc2d6bb3bba": 1,
+        "debea24f9de": 1,
+        "d2c1d64519c": 1,
+        "dbc129e57bf": 2,
+        "d99af2125b5": 3,
+        "d1aa58dc889": 2,
+        "dcfa515668c": 2,
+        "dcb66825388": 2,
+        "d15a95ac464": 0,
+        "d1a5ecaa9c7": 0,
+        "df855509349": 2,
+        "d05f70a933d": 1,
+        "d4fe0481967": 3,
+        "d71a85cff32": 3,
+        "d2094d43b1f": 2,
+        "d9e5dc601e2": 0,
+        "d605465a6d6": 3,
+        "d2fd1cde31d": 1,
+        "d5ff7ebd680": 3,
+        "d5751010009": 3,
+        "dc457cef8a9": 0
+      },
+      "label_source": {
+        "fixture": "benchmarks/2026-09-20-evidence-engine/fixture.json",
+        "fixture_sha256": "e37575e46ea0e09d679702c56e7fc3b01bca7ee340d1f9099ffc518b9e38300f",
+        "case_name": "dependency-advisory-heldout"
+      }
+    }
+  }
+}

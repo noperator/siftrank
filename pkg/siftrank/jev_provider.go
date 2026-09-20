@@ -114,11 +114,14 @@ func (p *JevProvider) Complete(context.Context, string, *CompletionOptions) (str
 // classification probabilities into ranked-ID JSON.
 // opts may be nil; when supplied it receives usage and response metadata.
 func (p *JevProvider) CompleteRanking(ctx context.Context, input RankingInput, opts *CompletionOptions) (string, error) {
-	if len(input.Documents) == 0 {
-		return "", fmt.Errorf("jev requires at least one ranking candidate")
-	}
 	if opts == nil {
 		opts = &CompletionOptions{}
+	}
+	// Callers may reuse options; never expose metadata from an earlier request.
+	opts.Usage, opts.ModelUsed, opts.FinishReason, opts.RequestID = Usage{}, "", "", ""
+	opts.PairwiseComparisons = nil
+	if len(input.Documents) == 0 {
+		return "", fmt.Errorf("jev requires at least one ranking candidate")
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -170,6 +173,7 @@ func (p *JevProvider) CompleteRanking(ctx context.Context, input RankingInput, o
 		return "", fmt.Errorf("jev response must contain exactly one Noul answer per candidate pair")
 	}
 	wins := make(map[string]float64, len(ids))
+	comparisons := make([]PairwiseComparison, 0, len(answers))
 	// Accumulate in input pair order, never response map iteration order.
 	for i := 0; i < len(ids); i++ {
 		for j := i + 1; j < len(ids); j++ {
@@ -187,6 +191,7 @@ func (p *JevProvider) CompleteRanking(ctx context.Context, input RankingInput, o
 			}
 			wins[ids[i]] += *prob
 			wins[ids[j]] += 1 - *prob
+			comparisons = append(comparisons, PairwiseComparison{FirstID: ids[i], SecondID: ids[j], Probability: *prob})
 		}
 	}
 	// Preserve the already-shuffled batch order on exact ties.
@@ -194,6 +199,9 @@ func (p *JevProvider) CompleteRanking(ctx context.Context, input RankingInput, o
 		return wins[ids[i]] > wins[ids[j]]
 	})
 	result, err := json.Marshal(rankedDocumentResponseNoRelevance{Documents: ids})
+	if err == nil {
+		opts.PairwiseComparisons = comparisons
+	}
 	return string(result), err
 }
 
