@@ -29,11 +29,7 @@ func TestFindConfigFile(t *testing.T) {
 		}
 
 		// Change to temp dir
-		origDir, _ := os.Getwd()
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
-		defer os.Chdir(origDir)
+		t.Chdir(tmpDir)
 
 		path, found := findConfigFile("")
 		if !found {
@@ -47,11 +43,7 @@ func TestFindConfigFile(t *testing.T) {
 	t.Run("no config file returns empty", func(t *testing.T) {
 		// Create temp dir without config file
 		tmpDir := t.TempDir()
-		origDir, _ := os.Getwd()
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
-		defer os.Chdir(origDir)
+		t.Chdir(tmpDir)
 
 		path, found := findConfigFile("")
 		if found {

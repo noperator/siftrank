@@ -124,7 +124,9 @@ func init() {
 	rootCmd.Flags().StringVarP(&inputFile, "file", "f", "", "input file (required)")
 	rootCmd.Flags().BoolVar(&forceJSON, "json", false, "force JSON parsing regardless of file extension")
 	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "JSON output file")
-	rootCmd.MarkFlagRequired("file")
+	if err := rootCmd.MarkFlagRequired("file"); err != nil {
+		panic(err)
+	}
 
 	// Prompt/Template flags
 	rootCmd.Flags().StringVarP(&initialPrompt, "prompt", "p", "", "initial prompt (prefix with @ to use a file)")

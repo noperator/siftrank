@@ -213,4 +213,3 @@ func setFieldValue(field reflect.Value, value interface{}) {
 		}
 	}
 }
-

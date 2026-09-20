@@ -58,16 +58,6 @@ var promptDisclaimer = "\n\nREMEMBER to:\n" +
 	"- Respond in JSON format, with the following schema:\n  {\"docs\": [\"<ID1>\", \"<ID2>\", ...]}\n\n" +
 	"Here are the documents to be ranked:\n\n"
 
-const missingIDsStr = "Your last response was missing the following IDs: [%s]. " +
-	"Try again—and make ABSOLUTELY SURE to remember to:\n" +
-	"- ALWAYS return the IDs and NOT THE VALUES! " +
-	"- ALWAYS respond in JSON format as specified! " +
-	"- ALWAYS return ALL of the IDs in the list!" +
-	"- NEVER include backticks around IDs in your response!" +
-	"— NEVER include scores or a written reason/justification in your response!"
-
-const invalidJSONStr = "Your last response was not valid JSON. Try again!"
-
 // ShortDeterministicID generates a deterministic ID of specified length from input string.
 // It uses SHA-256 hash and Base64 encoding, keeping only alphanumeric characters.
 func ShortDeterministicID(input string, length int) string {

@@ -106,7 +106,9 @@ func TestJevPairwiseRequest(t *testing.T) {
 				answers[key] = map[string]interface{}{"type": "noul", "noul": 1}
 			}
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"answers": answers})
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"answers": answers}); err != nil {
+			t.Error(err)
+		}
 	})
 	got, err := p.CompleteRanking(context.Background(), input, nil)
 	var ranked rankedDocumentResponseNoRelevance
