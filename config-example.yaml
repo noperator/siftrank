@@ -9,6 +9,14 @@ default: openai
 # tailor them for specific use cases.
 profiles:
 
+  # TypeSafe Jev: batched pairwise comparisons converted to ranked IDs.
+  # TYPESAFE_API_KEY takes precedence over api_key/api_key_cmd.
+  jev:
+    provider: jev
+    model: jev-1.13.0
+    batch_size: 10
+    relevance: false
+
   # Full-featured OpenAI profile using 1Password for key retrieval.
   # Retrieve the key via shell command to avoid storing it in plaintext.
   openai:
@@ -78,4 +86,3 @@ profiles:
     log: siftrank.log            # write logs to file instead of stderr
     debug: false                 # enable debug-level logging
     trace: trace.jsonl           # stream trial state as JSON Lines to this file
-

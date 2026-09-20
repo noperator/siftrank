@@ -6,6 +6,11 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
+// TODO: Revisit provider naming and configuration in a future major version,
+// including the OpenAI-specific config fields and CLI variable names.
+// Preserve LLMProvider.Complete for compatibility for now; structured backends
+// such as Jev use the optional ranking interface and an unsupported Complete stub.
+
 // LLMProvider handles LLM interactions for ranking operations.
 // Implementations handle network-level concerns (retries, rate limits, timeouts)
 // but make no guarantees about response format.
@@ -35,6 +40,47 @@ type LLMProvider interface {
 // to a rough approximation (~4 characters per token).
 type TokenEstimator interface {
 	EstimateTokens(text string) int
+}
+
+// RankingProvider is an optional SiftRank adapter capability that accepts
+// structured ranking input and returns ranked-ID JSON. An adapter may convert
+// backend probabilities into an ordering; the service need not rank items itself.
+// Ranker uses CompleteRanking when available, otherwise LLMProvider.Complete.
+// Implementations must be safe for concurrent calls. Existing LLMProvider
+// implementations need no changes.
+type RankingProvider interface {
+	CompleteRanking(ctx context.Context, input RankingInput, opts *CompletionOptions) (string, error)
+}
+
+// RankingTokenEstimator optionally sizes structured requests instead of the chat
+// prompt. Implementations must be safe for concurrent calls.
+type RankingTokenEstimator interface {
+	EstimateRankingTokens(input RankingInput) int
+}
+
+// RankingInput carries the ranking criteria and candidates for one batch.
+type RankingInput struct {
+	Prompt    string
+	Documents []RankingCandidate
+}
+
+// RankingCandidate pairs a batch-local ID with the formatted item text.
+type RankingCandidate struct {
+	ID    string `json:"id"`
+	Value string `json:"value"`
+}
+
+// rankingConfigurer handles provider-specific validation and configuration during
+// ranker construction without changing Config. Context constraints are checked
+// separately during batch fitting.
+type rankingConfigurer interface {
+	configureRanking(*Config) error
+}
+
+// Providers with multiple context constraints can check structured input during
+// batch fitting. The returned estimate is the combined request token count.
+type rankingBudgetChecker interface {
+	checkRankingBudget(RankingInput, int) (int, error)
 }
 
 // CompletionOptions contains optional parameters for completion requests

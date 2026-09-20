@@ -32,6 +32,7 @@ var (
 	refinementRatio float64
 
 	// Model params
+	provider string
 	oaiModel string
 	oaiURL   string
 	encoding string
@@ -137,8 +138,9 @@ func init() {
 	rootCmd.Flags().Float64Var(&refinementRatio, "ratio", siftrank.DefaultRefinementRatio, "refinement ratio (0.0-1.0, e.g. 0.5 = top 50%)")
 
 	// Model parameter flags
-	rootCmd.Flags().StringVarP(&oaiModel, "model", "m", openai.ChatModelGPT4oMini, "OpenAI model name")
-	rootCmd.Flags().StringVarP(&oaiURL, "base-url", "u", "", "OpenAI API base URL (for compatible APIs like vLLM)")
+	rootCmd.Flags().StringVar(&provider, "provider", "openai", "ranking provider: openai or jev")
+	rootCmd.Flags().StringVarP(&oaiModel, "model", "m", openai.ChatModelGPT4oMini, "model name (Jev default: jev-latest)")
+	rootCmd.Flags().StringVarP(&oaiURL, "base-url", "u", "", "provider API base URL, including /v1")
 	rootCmd.Flags().StringVar(&encoding, "encoding", siftrank.DefaultEncoding, "tokenizer encoding")
 	rootCmd.Flags().StringVarP(&effort, "effort", "e", "", "reasoning effort level: none, minimal, low, medium, high")
 
@@ -173,7 +175,7 @@ func init() {
 	rootCmd.SetUsageTemplate(usageTemplate)
 
 	// Organize flags into groups
-	setFlagGroup(rootCmd, "options", "file", "prompt", "output", "model", "relevance", "profile", "config-file")
+	setFlagGroup(rootCmd, "options", "file", "prompt", "output", "provider", "model", "relevance", "profile", "config-file")
 	setFlagGroup(rootCmd, "visualization", "watch", "no-minimap")
 	setFlagGroup(rootCmd, "debug", "trace", "debug", "dry-run", "log")
 	setFlagGroup(rootCmd, "advanced", "template", "json", "base-url", "encoding", "effort", "tokens", "batch-size", "max-trials", "concurrency", "ratio", "no-converge", "elbow-tolerance", "stable-trials", "min-trials", "elbow-method")
@@ -234,6 +236,9 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create config from CLI vars
+	// For compatibility, the OpenAI-named fields carry the selected provider's
+	// model, base URL, and resolved profile key, mapped into JevConfig for Jev.
+	// Naming cleanup is deferred to the provider TODO in pkg/siftrank/llm.go.
 	config := &siftrank.Config{
 		InitialPrompt:   userPrompt,
 		BatchSize:       batchSize,
@@ -241,7 +246,6 @@ func run(cmd *cobra.Command, args []string) error {
 		Concurrency:     concurrency,
 		OpenAIModel:     oaiModel,
 		RefinementRatio: refinementRatio,
-		OpenAIKey:       os.Getenv("OPENAI_API_KEY"),
 		OpenAIAPIURL:    oaiURL,
 		Encoding:        encoding,
 		BatchTokens:     batchTokens,
@@ -269,6 +273,24 @@ func run(cmd *cobra.Command, args []string) error {
 		applyProfile(profile, config, func(name string) bool {
 			return cmd.Flags().Changed(name)
 		})
+	}
+	// Provider selection belongs to the CLI; the package uses LLMProvider injection.
+	selectedProvider := provider
+	if value, exists := profile["provider"]; exists && !cmd.Flags().Changed("provider") {
+		var ok bool
+		selectedProvider, ok = value.(string)
+		if !ok {
+			return fmt.Errorf("profile provider must be a string")
+		}
+	}
+	// Only substitute Jev's default when no model was supplied by flag or profile.
+	if selectedProvider == "jev" && !cmd.Flags().Changed("model") {
+		if _, supplied := profile["model"]; !supplied {
+			config.OpenAIModel = ""
+		}
+	}
+	if err := configureCLIProvider(config, selectedProvider); err != nil {
+		return err
 	}
 
 	// Set up logging (after profile is applied)
@@ -335,6 +357,37 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// configureCLIProvider resolves the selected backend and credential, injecting
+// Jev or retaining NewRanker's default OpenAI construction. Profiles are resolved
+// first, including api_key_cmd. Environment lookup follows provider selection:
+// nonempty OPENAI_API_KEY (OpenAI) or TYPESAFE_API_KEY (Jev) overrides the profile
+// key, avoiding use of an OpenAI environment credential for Jev.
+func configureCLIProvider(config *siftrank.Config, name string) error {
+	switch name {
+	case "openai":
+		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+			config.OpenAIKey = key
+		}
+		// Preserve NewRanker's existing default OpenAI construction.
+		return nil
+	case "jev":
+		key := config.OpenAIKey
+		if envKey := os.Getenv("TYPESAFE_API_KEY"); envKey != "" {
+			key = envKey
+		}
+		p, err := siftrank.NewJevProvider(siftrank.JevConfig{
+			APIKey: key, Model: string(config.OpenAIModel), BaseURL: config.OpenAIAPIURL,
+		})
+		if err != nil {
+			return err
+		}
+		config.LLMProvider = p
+		return nil
+	default:
+		return fmt.Errorf("unknown provider %q (use openai or jev)", name)
+	}
 }
 
 func main() {

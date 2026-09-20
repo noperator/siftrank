@@ -82,6 +82,12 @@ func NewRanker(config *Config) (*Ranker, error) {
 		}
 	}
 
+	if configurable, ok := provider.(rankingConfigurer); ok {
+		if err := configurable.configureRanking(config); err != nil {
+			return nil, err
+		}
+	}
+
 	return &Ranker{
 		cfg:       config,
 		provider:  provider,
@@ -119,27 +125,27 @@ func (ranker *Ranker) adjustBatchSize(documents []document) error {
 		}
 
 		// Estimate tokens for this worst-case batch
-		estBatchTokens := ranker.estimateTokens(largestDocs, true)
+		estBatchTokens, budgetErr := ranker.checkBatchBudget(largestDocs)
 
-		if estBatchTokens <= ranker.cfg.BatchTokens {
+		if budgetErr == nil {
 			// Success! The largest documents fit
 			ranker.cfg.Logger.Debug("Batch size validated",
 				"batch_size", ranker.cfg.BatchSize,
-				"worst_case_tokens", estBatchTokens,
-				"max_tokens", ranker.cfg.BatchTokens,
-				"utilization_pct", float64(estBatchTokens)/float64(ranker.cfg.BatchTokens)*100)
+				"estimated_total_tokens", estBatchTokens,
+				"user_budget", ranker.cfg.BatchTokens)
 			return nil
 		}
 
 		// Batch too large - log details and decrease size
 		ranker.cfg.Logger.Debug("Batch exceeds token limit",
 			"batch_size", ranker.cfg.BatchSize,
-			"estimated_tokens", estBatchTokens,
-			"max_tokens", ranker.cfg.BatchTokens)
+			"estimated_total_tokens", estBatchTokens,
+			"user_budget", ranker.cfg.BatchTokens,
+			"error", budgetErr)
 		ranker.logTokenSizes(largestDocs)
 
 		if ranker.cfg.BatchSize <= minBatchSize {
-			return fmt.Errorf("cannot create a valid batch within the token limit (even with batch size %d)", minBatchSize)
+			return fmt.Errorf("cannot create a valid batch within the token limit (even with batch size %d): %w", minBatchSize, budgetErr)
 		}
 
 		ranker.cfg.BatchSize--
@@ -275,9 +281,8 @@ func (r *Ranker) RankFromReader(reader io.Reader, templateData string, isJSON bo
 func (r *Ranker) rankDocuments(documents []document) ([]*RankedDocument, error) {
 	// check that no document is too large
 	for _, doc := range documents {
-		tokens := r.estimateTokens([]document{doc}, true)
-		if tokens > r.cfg.BatchTokens {
-			return nil, fmt.Errorf("document is too large with %d tokens:\n%s", tokens, doc.Value)
+		if _, err := r.checkBatchBudget([]document{doc}); err != nil {
+			return nil, fmt.Errorf("document %q cannot fit: %w", doc.ID, err)
 		}
 	}
 
@@ -681,8 +686,8 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 
 	type batchResult struct {
 		rankedDocs  []rankedDocument
-		usage       Usage // Tokens for this batch (sum of all calls/retries)
-		numCalls    int   // Number of LLM calls made for this batch
+		usage       Usage // Provider-reported tokens across all attempts for this batch
+		numCalls    int   // Provider method invocations, including errors (not internal HTTP retries)
 		err         error
 		trialNumber int
 		batchNumber int
@@ -830,6 +835,18 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 
 	// Collect results
 	for result := range resultsChan {
+		// Account for every result, including errors and incomplete trials.
+		if trialStatsMap[result.trialNumber] == nil {
+			trialStatsMap[result.trialNumber] = &trialStats{}
+		}
+		stats := trialStatsMap[result.trialNumber]
+		stats.numCalls += result.numCalls
+		stats.usage.Add(result.usage)
+		r.mu.Lock()
+		r.totalUsage.Add(result.usage)
+		r.totalCalls += result.numCalls
+		r.mu.Unlock()
+
 		if result.err != nil {
 			// Skip logging if context was cancelled (intentional due to convergence)
 			if errors.Is(result.err, context.Canceled) {
@@ -842,14 +859,6 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 			}
 			continue
 		}
-
-		// Always track usage/calls regardless of dropped or successful
-		if trialStatsMap[result.trialNumber] == nil {
-			trialStatsMap[result.trialNumber] = &trialStats{}
-		}
-		stats := trialStatsMap[result.trialNumber]
-		stats.numCalls += result.numCalls
-		stats.usage.Add(result.usage)
 
 		// Detect dropped batch (nil rankedDocs with nil error)
 		if len(result.rankedDocs) == 0 {
@@ -907,6 +916,9 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 			// Track successful batch stats
 			stats.numBatches++
 			completedBatches[result.trialNumber]++
+			r.mu.Lock()
+			r.totalBatches++
+			r.mu.Unlock()
 
 			// Track per-round comparisons for zero-exposure detection
 			for _, rankedDoc := range result.rankedDocs {
@@ -933,13 +945,6 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 			"num_calls", stats.numCalls,
 			"input_tokens", stats.usage.InputTokens,
 			"output_tokens", stats.usage.OutputTokens)
-
-		// Update running totals immediately after trial completion
-		r.mu.Lock()
-		r.totalUsage.Add(stats.usage)
-		r.totalCalls += stats.numCalls
-		r.totalBatches += stats.numBatches
-		r.mu.Unlock()
 
 		// Check for convergence (this adds the current trial's elbow to the array)
 		// Note: hasConverged uses the shared 'scores' map (all trials) which is correct
@@ -1006,7 +1011,7 @@ func (r *Ranker) shuffleBatchRank(documents []document) ([]*RankedDocument, erro
 		"input_tokens", roundUsage.InputTokens,
 		"output_tokens", roundUsage.OutputTokens)
 
-	// Update round-level totals (usage/calls/batches already updated per-trial)
+	// Update round-level totals (usage/calls/batches already updated per result)
 	r.mu.Lock()
 	r.totalTrials += completedTrialsCount
 	r.totalRounds++ // Increment on each round
