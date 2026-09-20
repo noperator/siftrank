@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -56,16 +57,6 @@ var promptDisclaimer = "\n\nREMEMBER to:\n" +
 	"- Respond in RANKED DESCENDING order, where the FIRST item in your response is the MOST RELEVANT\n" +
 	"- Respond in JSON format, with the following schema:\n  {\"docs\": [\"<ID1>\", \"<ID2>\", ...]}\n\n" +
 	"Here are the documents to be ranked:\n\n"
-
-const missingIDsStr = "Your last response was missing the following IDs: [%s]. " +
-	"Try again—and make ABSOLUTELY SURE to remember to:\n" +
-	"- ALWAYS return the IDs and NOT THE VALUES! " +
-	"- ALWAYS respond in JSON format as specified! " +
-	"- ALWAYS return ALL of the IDs in the list!" +
-	"- NEVER include backticks around IDs in your response!" +
-	"— NEVER include scores or a written reason/justification in your response!"
-
-const invalidJSONStr = "Your last response was not valid JSON. Try again!"
 
 // ShortDeterministicID generates a deterministic ID of specified length from input string.
 // It uses SHA-256 hash and Base64 encoding, keeping only alphanumeric characters.
@@ -159,7 +150,35 @@ func (r *Ranker) getResponseSchema() interface{} {
 	return generateSchema[rankedDocumentResponseNoRelevance]()
 }
 
+func (r *Ranker) estimatedRankingInput(group []document, includePrompt bool) RankingInput {
+	input := RankingInput{}
+	if includePrompt {
+		input.Prompt = r.cfg.InitialPrompt
+	}
+	for i, doc := range group {
+		// Longer placeholders provide headroom over memorable IDs without
+		// consuming the ranking RNG; they are not a token-count guarantee.
+		input.Documents = append(input.Documents, RankingCandidate{ID: fmt.Sprintf("x%07d", i), Value: doc.Value})
+	}
+	return input
+}
+
+func (r *Ranker) checkBatchBudget(group []document) (int, error) {
+	if checker, ok := r.provider.(rankingBudgetChecker); ok {
+		return checker.checkRankingBudget(r.estimatedRankingInput(group, true), r.cfg.BatchTokens)
+	}
+	tokens := r.estimateTokens(group, true)
+	if tokens > r.cfg.BatchTokens {
+		return tokens, fmt.Errorf("estimated input %d tokens exceeds budget %d; shorten items or the ranking prompt", tokens, r.cfg.BatchTokens)
+	}
+	return tokens, nil
+}
+
 func (r *Ranker) estimateTokens(group []document, includePrompt bool) int {
+	if estimator, ok := r.provider.(RankingTokenEstimator); ok {
+		return estimator.EstimateRankingTokens(r.estimatedRankingInput(group, includePrompt))
+	}
+
 	text := ""
 	if includePrompt {
 		text += r.cfg.InitialPrompt + promptDisclaimer
@@ -308,7 +327,9 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 		}
 
 		// Try to create memorable ID mappings for this outer iteration
+		r.mu.Lock()
 		originalToTemp, tempToOriginal, err := createIDMappings(group, r.rng, r.cfg.Logger)
+		r.mu.Unlock()
 		useMemorableIDs := err == nil && originalToTemp != nil && tempToOriginal != nil
 
 		// Compute inputIDs once per outer iteration (IDs don't change within inner loop)
@@ -371,19 +392,38 @@ func (r *Ranker) rankDocs(ctx context.Context, group []document, trialNumber int
 				prompt += "--- END PREVIOUS ATTEMPT ---\n"
 			}
 
-			// Call provider with options
-			opts := &CompletionOptions{
-				Schema: schema,
+			// Structured providers receive the candidates directly. Existing providers
+			// keep the same prompt, options, and Complete call as before.
+			opts := &CompletionOptions{Schema: schema}
+			var rawResponse string
+			var err error
+			if provider, ok := r.provider.(RankingProvider); ok {
+				input := RankingInput{Prompt: r.cfg.InitialPrompt}
+				for _, doc := range group {
+					id := doc.ID
+					if useMemorableIDs {
+						id = originalToTemp[id]
+					}
+					input.Documents = append(input.Documents, RankingCandidate{ID: id, Value: doc.Value})
+				}
+				rawResponse, err = provider.CompleteRanking(ctx, input, opts)
+			} else {
+				rawResponse, err = r.provider.Complete(ctx, prompt, opts)
 			}
-
-			rawResponse, err := r.provider.Complete(ctx, prompt, opts)
 
 			// Accumulate usage from opts
 			numCalls++
 			totalUsage.Add(opts.Usage)
 
-			// Log the call
-			r.cfg.Logger.Debug("LLM call completed",
+			// Log the provider outcome before ranking response validation.
+			outcome := "success"
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				outcome = "canceled"
+			} else if err != nil {
+				outcome = "error"
+			}
+			r.cfg.Logger.Debug("LLM call returned",
+				"outcome", outcome,
 				"round", r.round,
 				"trial", trialNumber,
 				"batch", batchNumber,

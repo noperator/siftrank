@@ -1,12 +1,293 @@
 package siftrank
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/openai/openai-go"
 )
+
+func TestRankDocsConcurrentIDs(t *testing.T) {
+	const workers, iterations = 16, 10
+	entered := make(chan struct{}, workers*iterations)
+	release := make(chan struct{})
+	idsPattern := regexp.MustCompile("id: `([^`]+)`")
+	p := &legacyTestProvider{complete: func(ctx context.Context, prompt string, opts *CompletionOptions) (string, error) {
+		entered <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		var ids []string
+		for _, match := range idsPattern.FindAllStringSubmatch(prompt, -1) {
+			ids = append(ids, match[1])
+		}
+		data, err := json.Marshal(rankedDocumentResponseNoRelevance{Documents: ids})
+		return string(data), err
+	}}
+	cfg := NewConfig()
+	cfg.InitialPrompt = "Rank items"
+	cfg.LLMProvider = p
+	cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	r, err := NewRanker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.rng = rand.New(rand.NewSource(1))
+	var docs []document
+	for i := 0; i < 10; i++ {
+		docs = append(docs, document{ID: fmt.Sprintf("original-%d", i), Value: fmt.Sprint(i)})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for i := 0; i < iterations; i++ {
+				got, calls, _, err := r.rankDocs(ctx, docs, 1, i+1)
+				if err != nil || calls != 1 || len(got) != len(docs) {
+					t.Errorf("rankDocs: %d items, %d calls, %v", len(got), calls, err)
+					return
+				}
+				for j, ranked := range got {
+					if ranked.Document != docs[j] || ranked.Score != float64(j+1) {
+						t.Errorf("candidate %d changed: %+v", j, ranked)
+					}
+				}
+			}
+		}()
+	}
+	close(start)
+	// All providers must be in flight together before any is released.
+	for i := 0; i < workers; i++ {
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			t.Errorf("provider calls did not overlap: %v", ctx.Err())
+		}
+	}
+	close(release)
+	wg.Wait()
+}
+
+func TestUsageAccounting(t *testing.T) {
+	providerErr := errors.New("provider failed")
+	for _, tc := range []struct {
+		name            string
+		outcomes        []string
+		zeroUsage       bool
+		batches, trials int
+		wantErr         error
+	}{
+		{name: "completed", outcomes: []string{"success"}, batches: 1, trials: 1},
+		{name: "zero usage", outcomes: []string{"success"}, zeroUsage: true, batches: 1, trials: 1},
+		{name: "retry then success", outcomes: []string{"invalid", "success"}, batches: 1, trials: 1},
+		{name: "error", outcomes: []string{"error"}, wantErr: providerErr},
+		{name: "canceled", outcomes: []string{"canceled"}},
+		{name: "deadline", outcomes: []string{"deadline"}, wantErr: context.DeadlineExceeded},
+		{name: "retry then error", outcomes: []string{"invalid", "error"}, wantErr: providerErr},
+		{name: "dropped", outcomes: []string{"invalid", "invalid", "invalid", "invalid", "invalid", "invalid", "invalid", "invalid", "invalid"}, trials: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			var calls int
+			var reported Usage
+			idsPattern := regexp.MustCompile("id: `([^`]+)`")
+			p := &legacyTestProvider{complete: func(_ context.Context, prompt string, opts *CompletionOptions) (string, error) {
+				outcome := tc.outcomes[calls%len(tc.outcomes)]
+				calls++
+				if !tc.zeroUsage {
+					opts.Usage = Usage{InputTokens: 10 * calls, OutputTokens: calls, ReasoningTokens: 1}
+				}
+				reported.Add(opts.Usage)
+				opts.ModelUsed = "test-model"
+				opts.FinishReason = "test-finish"
+				switch outcome {
+				case "invalid":
+					return "not JSON", nil
+				case "error":
+					return `{"docs":["invalid"]}`, providerErr
+				case "canceled":
+					return `{"docs":["invalid"]}`, fmt.Errorf("provider: %w", context.Canceled)
+				case "deadline":
+					return "", fmt.Errorf("provider: %w", context.DeadlineExceeded)
+				}
+				var ids []string
+				for _, match := range idsPattern.FindAllStringSubmatch(prompt, -1) {
+					ids = append(ids, match[1])
+				}
+				data, err := json.Marshal(rankedDocumentResponseNoRelevance{Documents: ids})
+				return string(data), err
+			}}
+			cfg := NewConfig()
+			cfg.InitialPrompt = "Rank items"
+			cfg.LLMProvider = p
+			cfg.Concurrency, cfg.BatchSize, cfg.NumTrials = 1, 2, 1
+			cfg.EnableConvergence = false
+			cfg.Logger = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			r, err := NewRanker(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.numBatches = 1
+			r.comparedAgainst = make(map[string]map[string]bool)
+			for round := 1; round <= 2; round++ {
+				r.round = round
+				got, err := r.shuffleBatchRank([]document{{ID: "a"}, {ID: "b"}})
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("round %d: got error %v, want %v", round, err, tc.wantErr)
+				}
+				if len(got) != 2*tc.batches {
+					t.Fatalf("round %d: got %d ranked items, want %d", round, len(got), 2*tc.batches)
+				}
+			}
+			if calls != 2*len(tc.outcomes) || r.totalCalls != calls || r.totalUsage != reported {
+				t.Fatalf("calls=%d/%d, usage=%+v; want calls=%d, usage=%+v", r.totalCalls, calls, r.totalUsage, 2*len(tc.outcomes), reported)
+			}
+			if r.totalBatches != 2*tc.batches || r.totalTrials != 2*tc.trials || r.totalRounds != 2 {
+				t.Fatalf("batches=%d, trials=%d, rounds=%d", r.totalBatches, r.totalTrials, r.totalRounds)
+			}
+			var roundCalls, roundBatches, roundTrials, inputTokens, outputTokens, callLogs, roundLogs int
+			decoder := json.NewDecoder(&logs)
+			for decoder.More() {
+				var event map[string]interface{}
+				if err := decoder.Decode(&event); err != nil {
+					t.Fatal(err)
+				}
+				switch event["msg"] {
+				case "Round completed":
+					roundLogs++
+					roundCalls += int(event["num_calls"].(float64))
+					roundBatches += int(event["num_batches"].(float64))
+					roundTrials += int(event["num_trials"].(float64))
+					inputTokens += int(event["input_tokens"].(float64))
+					outputTokens += int(event["output_tokens"].(float64))
+				case "LLM call returned":
+					wantOutcome := tc.outcomes[callLogs%len(tc.outcomes)]
+					if wantOutcome == "invalid" {
+						wantOutcome = "success" // Provider returned; ranking validation follows.
+					} else if wantOutcome == "deadline" {
+						wantOutcome = "canceled"
+					}
+					if event["outcome"] != wantOutcome || event["model"] != "test-model" || event["finish_reason"] != "test-finish" {
+						t.Errorf("incorrect call log: %+v", event)
+					}
+					callLogs++
+				case "LLM call completed":
+					t.Error("misleading call completion log")
+				}
+			}
+			if roundLogs != 2 || callLogs != calls || roundCalls != r.totalCalls || roundBatches != r.totalBatches || roundTrials != r.totalTrials || inputTokens != reported.InputTokens || outputTokens != reported.OutputTokens {
+				t.Fatalf("round summaries do not match run totals: rounds=%d, call logs=%d, calls=%d, batches=%d, trials=%d, input=%d, output=%d", roundLogs, callLogs, roundCalls, roundBatches, roundTrials, inputTokens, outputTokens)
+			}
+		})
+	}
+}
+
+type usageAccountingHandler struct {
+	slog.Handler
+	beforeHandle func(slog.Record)
+}
+
+func (h usageAccountingHandler) Handle(ctx context.Context, record slog.Record) error {
+	h.beforeHandle(record)
+	return h.Handler.Handle(ctx, record)
+}
+
+func TestUsageAccountingConvergence(t *testing.T) {
+	var logs bytes.Buffer
+	lastCallStarted := make(chan struct{})
+	var calls, completedTrials int
+	idsPattern := regexp.MustCompile("id: `([^`]+)`\\nvalue:\\n```\\n([^\\n]+)")
+	p := &legacyTestProvider{complete: func(ctx context.Context, prompt string, opts *CompletionOptions) (string, error) {
+		calls++
+		opts.Usage = Usage{InputTokens: 10, OutputTokens: 2, ReasoningTokens: 1}
+		if calls == 8 {
+			close(lastCallStarted)
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		matches := idsPattern.FindAllStringSubmatch(prompt, -1)
+		if len(matches) != 2 {
+			return "", fmt.Errorf("expected two candidates, got %d", len(matches))
+		}
+		if matches[0][2] > matches[1][2] {
+			matches[0], matches[1] = matches[1], matches[0]
+		}
+		data, err := json.Marshal(rankedDocumentResponseNoRelevance{Documents: []string{matches[0][1], matches[1][1]}})
+		return string(data), err
+	}}
+	cfg := NewConfig()
+	cfg.InitialPrompt = "Rank items"
+	cfg.LLMProvider = p
+	cfg.Concurrency, cfg.BatchSize, cfg.NumTrials = 1, 2, 5
+	cfg.MinTrials, cfg.StableTrials = 2, 2
+	cfg.ElbowTolerance = 0.75
+	cfg.Logger = slog.New(usageAccountingHandler{
+		Handler: slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}),
+		beforeHandle: func(record slog.Record) {
+			if record.Message == "Trial completed" {
+				completedTrials++
+				if completedTrials == 3 {
+					// Hold the collector until trial 4 has one successful batch
+					// buffered and its second call is waiting for cancellation.
+					<-lastCallStarted
+				}
+			}
+		},
+	})
+	r, err := NewRanker(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.rng = rand.New(rand.NewSource(1))
+	r.round, r.numBatches = 1, 2
+	r.comparedAgainst = make(map[string]map[string]bool)
+	got, err := r.shuffleBatchRank([]document{{ID: "a", Value: "a"}, {ID: "b", Value: "b"}, {ID: "c", Value: "c"}, {ID: "d", Value: "d"}})
+	if err != nil || len(got) != 4 || !r.converged {
+		t.Fatalf("got %d items, converged=%v, error=%v", len(got), r.converged, err)
+	}
+	if calls != 8 || r.totalCalls != 8 || r.totalUsage != (Usage{InputTokens: 80, OutputTokens: 16, ReasoningTokens: 8}) {
+		t.Fatalf("calls=%d/%d, usage=%+v", calls, r.totalCalls, r.totalUsage)
+	}
+	if r.totalBatches != 7 || r.totalTrials != 3 || r.totalRounds != 1 {
+		t.Fatalf("batches=%d, trials=%d, rounds=%d", r.totalBatches, r.totalTrials, r.totalRounds)
+	}
+	var rounds int
+	decoder := json.NewDecoder(&logs)
+	for decoder.More() {
+		var event map[string]interface{}
+		if err := decoder.Decode(&event); err != nil {
+			t.Fatal(err)
+		}
+		if event["msg"] == "Round completed" {
+			rounds++
+			if event["num_calls"] != float64(8) || event["num_batches"] != float64(7) || event["num_trials"] != float64(3) || event["input_tokens"] != float64(80) || event["output_tokens"] != float64(16) {
+				t.Errorf("incorrect round summary: %+v", event)
+			}
+		}
+	}
+	if rounds != 1 {
+		t.Fatalf("got %d round summaries", rounds)
+	}
+}
 
 func TestNewRanker(t *testing.T) {
 	tests := []struct {
