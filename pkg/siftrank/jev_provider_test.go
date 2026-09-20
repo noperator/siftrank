@@ -64,10 +64,53 @@ func TestJevComplete(t *testing.T) {
 			if opts.ModelUsed != "jev-1.13.0" || opts.RequestID != "test-request" || opts.Usage.TotalTokens() != 110 {
 				t.Errorf("incorrect metadata: %+v", opts)
 			}
+			wantPairs := []PairwiseComparison{{"b", "a", 0.1}, {"b", "c", 0.7}, {"a", "c", 0.8}}
+			if !reflect.DeepEqual(opts.PairwiseComparisons, wantPairs) {
+				t.Errorf("comparison identities, direction or probabilities changed: %+v", opts.PairwiseComparisons)
+			}
 			if !reflect.DeepEqual(input.Documents, jevTestInput().Documents) {
 				t.Error("provider mutated input order")
 			}
 		})
+	}
+}
+
+func TestJevComparisonMetadataIsNotStaleOrPartial(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input RankingInput
+		body  string
+	}{
+		{"empty", RankingInput{}, ""},
+		{"duplicate", RankingInput{Documents: []RankingCandidate{{ID: "a"}, {ID: "a"}}}, ""},
+		{"singleton", RankingInput{Documents: []RankingCandidate{{ID: "a"}}}, ""},
+		{"invalid last pair", jevTestInput(), `{"answers":{"pair_0_1":{"type":"noul","noul":0.1},"pair_0_2":{"type":"noul","noul":0.7},"pair_1_2":{"type":"noul","noul":1.1}}}`},
+		{"wrong answer count", jevTestInput(), `{"answers":{"pair_0_1":{"type":"noul","noul":0.1}}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newTestJev(t, func(w http.ResponseWriter, r *http.Request) {
+				if tc.body == "" {
+					t.Error("unexpected request")
+				}
+				fmt.Fprint(w, tc.body)
+			})
+			opts := &CompletionOptions{Usage: Usage{InputTokens: 42}, ModelUsed: "old", RequestID: "old", FinishReason: "old",
+				PairwiseComparisons: []PairwiseComparison{{"old-a", "old-b", 0.5}}}
+			_, err := p.CompleteRanking(context.Background(), tc.input, opts)
+			if (err == nil) != (tc.name == "singleton") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if opts.PairwiseComparisons != nil || opts.ModelUsed != "" || opts.RequestID != "" || opts.Usage.TotalTokens() != 0 || opts.FinishReason != "" {
+				t.Fatalf("stale or partial metadata: %+v", opts)
+			}
+		})
+	}
+	p := newTestJev(t, func(w http.ResponseWriter, r *http.Request) { t.Error("unexpected request") })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	opts := &CompletionOptions{PairwiseComparisons: []PairwiseComparison{{"old-a", "old-b", 0.5}}}
+	if _, err := p.CompleteRanking(ctx, jevTestInput(), opts); !errors.Is(err, context.Canceled) || opts.PairwiseComparisons != nil {
+		t.Fatalf("cancellation left stale comparisons: %+v, %v", opts, err)
 	}
 }
 

@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "description": "Retrospective ordinal-pairwise observations from all six existing synthetic cases, all three seeds, and all recursive rounds. No examples selected by correctness, margin, or resulting chart.",
+  "selection": {
+    "included_mode": "pairwise",
+    "excluded_modes": [
+      "pairwise-expected",
+      "openai"
+    ],
+    "included_rounds": "all",
+    "included_seeds": [
+      1,
+      2,
+      3
+    ],
+    "included_statuses": "all selected receipts; all happened to be accepted",
+    "order": "development then engine; fixture case order; seed order; original receipt order"
+  },
+  "implementation_commit": "ad1315973c3d51cc9fce69959fd5220d43a4c412",
+  "model": "jev-1.13.0",
+  "counts": {
+    "cases": 6,
+    "runs": 18,
+    "receipts": 324,
+    "wire_calls": 324,
+    "source_candidates": 144,
+    "pair_observations": 7020,
+    "wrong_decisive_unequal_grade_preferences": 1673,
+    "exact_probability_ties": 130,
+    "equal_grade_observations": 1863,
+    "statuses": {
+      "accepted": 324
+    }
+  },
+  "verification": {
+    "candidate_values_match_fixture": true,
+    "source_ids_and_input_indices_match_fixture": true,
+    "request_states_match_receipts_without_labels": true,
+    "complete_pair_matrix_matches_wire_probabilities_and_orientation": true,
+    "ranked_order_matches_expected_pairwise_wins": true,
+    "response_models_match": true,
+    "usage_matches": true,
+    "every_selected_original_receipt_field_retained": true
+  },
+  "files": {
+    "captures.jsonl.gz": {
+      "bytes": 117519,
+      "uncompressed_bytes": 1629967,
+      "records": 324,
+      "sha256": "2517a2fd73ebd7f37c43a62292910b27b478f91cfd77b0186a91e3ab2c089730",
+      "uncompressed_sha256": "d791820e5aad8f35db815b6d2e51a9a2b9c4980290f6409a5a26cd8a554af563"
+    },
+    "wire.jsonl.gz": {
+      "bytes": 235959,
+      "uncompressed_bytes": 9346283,
+      "records": 324,
+      "sha256": "bed044f3be963254b5e78b95eb3ed342415b20e648fa9c47580e8f7fd8c12a48",
+      "uncompressed_sha256": "cce74cb0acdce3ba0fab393c4a9e895c9cfa59ac32d614ea43bb71ec97c84575"
+    },
+    "labels.json": {
+      "bytes": 11360,
+      "sha256": "2bd3f8d25d62c5bfcd4822874e08854b7df23aace6d2c6008ff8faefaba278d1"
+    },
+    "input.json": {
+      "bytes": 2901,
+      "sha256": "eba9f8332b31fab418a47b33e97656e203e0915be91ff79df27fde39835aca17"
+    },
+    "example-labels.json": {
+      "bytes": 1096,
+      "sha256": "2469768b344b5f73785252c3bdf26bb09fc0046cee6130df1082a5151ebc10e0"
+    }
+  },
+  "sources": [
+    {
+      "source_directory": "benchmarks/2026-09-20-evidence-development",
+      "implementation_commit": "ad1315973c3d51cc9fce69959fd5220d43a4c412",
+      "manifest": {
+        "batch_size": 8,
+        "commit": "ad1315973c3d51cc9fce69959fd5220d43a4c412",
+        "concurrency": 1,
+        "convergence": false,
+        "fixture_sha256": "c1db554ae1374276aec5dd16698bcfb6836e5798fc00f63b573e9a99395b6566",
+        "go_version": "go1.26.3",
+        "limitations": "Hand-authored smoke cases; no population accuracy claim. Initial shuffle is seeded; refined subsets can differ by mode and score ties use original input order. OpenAI is a listwise comparator; this measures complete adapters, not an isolated model architecture.",
+        "max_http_calls": 1000,
+        "mode_order": "cyclic rotation by case index plus seed index",
+        "model": "jev-1.13.0",
+        "modes": [
+          "pairwise",
+          "pairwise-expected",
+          "openai"
+        ],
+        "openai_effort": "none",
+        "openai_model": "gpt-5.6-luna",
+        "overall_timeout_minutes": 15,
+        "refinement_ratio": 0.5,
+        "request_timeout_seconds": 25,
+        "seeds": [
+          1,
+          2,
+          3
+        ],
+        "source_sha256": {
+          "go.mod": "527448a26f342127523316631178af2fa836d4228dec7cf2febe117d38e2c3d3",
+          "go.sum": "b42eb35e404293c82ca25580c43a7af16cfd1fae9700154d08abab4b797f681a",
+          "pkg/siftrank/batch.go": "b463ae06326f6f24c991050bdd261f69a68175e23db02477c66cbae86f3ceea9",
+          "pkg/siftrank/comparisons.go": "845f06d2ae69e008efbd781ec33798f988a959eeddbae84889bfddc43f391817",
+          "pkg/siftrank/comparisons_test.go": "4262b84c79464e20e01f31f1054b91ba18aed30ee5909d226b9c3f50cd9c0dd6",
+          "pkg/siftrank/config.go": "1070f0f49e6c57d1b5e3696018b4a4553a9c327d145c4f6de37658749ab1bb3a",
+          "pkg/siftrank/convergence.go": "31f2bb47dff31aa9f8f31e292703bc188012633cefaabba0eb967fe592f96ef3",
+          "pkg/siftrank/expected_ranks_test.go": "bda763d0569daf8f9339f8a9ff01467b71a2a90ae1e60438b08b834eca33acc9",
+          "pkg/siftrank/jev_choice.go": "9b768e81e501be1c43f9715095f3fd233f42999e3f3c08e6f8545e3d4ba9f8e6",
+          "pkg/siftrank/jev_choice_limits_test.go": "2072aef89eeace5c7bb794049f9df210a0dfb12fa30aebc209ffca28ed42112b",
+          "pkg/siftrank/jev_choice_test.go": "a219fcac3a7c5bf7e5cbaf92d94ce6d7b4042bd33269c859eb558aaddb2fb1ea",
+          "pkg/siftrank/jev_expected_ranks_test.go": "0c71e00e045fd1897ca334920b6422696fd538a9e6f68112ca1d0a41eb8246fd",
+          "pkg/siftrank/jev_live_benchmark_test.go": "467951956e575f99b5a4d9cf863952604715b19e22f441c4510acfd874d9804e",
+          "pkg/siftrank/jev_provider.go": "135798ecd187f9282a36b666b26c2bcda4934bea348950460df071cab3ca60bd",
+          "pkg/siftrank/jev_provider_test.go": "c62267e39b52d0e8cb0c978bb23c6caa3d6949585b2390f4d5b79e7a7e70d5d7",
+          "pkg/siftrank/llm.go": "a1409dd90608bfe0e77e4ada7270de6050f142c6fdc3cd0640b3c7037650a155",
+          "pkg/siftrank/loader.go": "990903c926ee4e9b8ddc2814c9500a70e9a9cede5f06c1be80cd2009d17b8ed2",
+          "pkg/siftrank/openai_provider.go": "3a4248c2e2bec38337e9081db5e523fc142cd98aa52838bf9d548eb2ad58e179",
+          "pkg/siftrank/siftrank.go": "e6b717db3bc3c3efbddf1dbc6c30e07a50294295a731ad697a61ba34d4da5e08",
+          "pkg/siftrank/siftrank_test.go": "41cab3632ee793a827f873fbb9954687e232c60d09b727405fb3007befb557f8",
+          "pkg/siftrank/viz.go": "aae51b1e7b96dbe6bb872a2bc0962b6b513f8cda6c59a4a537b74f0416786c77",
+          "scripts/inspect_comparisons.py": "5806592916dd21e0f1b43d63f7fb24dd73a5b58e09d4b6240883db86b71cf409"
+        },
+        "started_at": "2026-09-20T04:36:44.899558Z",
+        "trials": 3
+      },
+      "files": {
+        "fixture.json": {
+          "bytes": 23896,
+          "sha256": "c1db554ae1374276aec5dd16698bcfb6836e5798fc00f63b573e9a99395b6566"
+        },
+        "manifest.json": {
+          "bytes": 3243,
+          "sha256": "44cc387991650d0984fbbd239dbb5374d371c38c68a170c2313c7db4f2645387"
+        },
+        "complete.json": {
+          "bytes": 110,
+          "sha256": "f4c3bfb5cc9e7b96a069b04630d2f540c8dec70f3d6bdaf0edcbf7034463e588"
+        },
+        "http.jsonl": {
+          "bytes": 9529169,
+          "sha256": "8c4652ecae14ff07a33ff431b5f370594717623dfc5726677c9f57f9c1f4bd2d"
+        }
+      },
+      "selected_receipts": [
+        {
+          "path": "comparisons-case0-seed1-pairwise.jsonl",
+          "run_id": "development/identity-effective-access/seed-1",
+          "records": 18,
+          "sha256": "bf2947be608587347aed68660eb4bd239aaebbe5824067cdea8b795900d03b88"
+        },
+        {
+          "path": "comparisons-case0-seed2-pairwise.jsonl",
+          "run_id": "development/identity-effective-access/seed-2",
+          "records": 18,
+          "sha256": "e89b7122453b04f0635cfc5dae06e1738b5759c524b44f2db41ad6db290d04a3"
+        },
+        {
+          "path": "comparisons-case0-seed3-pairwise.jsonl",
+          "run_id": "development/identity-effective-access/seed-3",
+          "records": 18,
+          "sha256": "b6e07962488f398d6ca3e85b0ce39e3b568ad394eca9dd3024bc12b6ccca06e7"
+        },
+        {
+          "path": "comparisons-case1-seed1-pairwise.jsonl",
+          "run_id": "development/code-lifetime-priority/seed-1",
+          "records": 18,
+          "sha256": "f07a56dfc7a636de297aa37931804be65d17faa4e619f441b91617120d69afdd"
+        },
+        {
+          "path": "comparisons-case1-seed2-pairwise.jsonl",
+          "run_id": "development/code-lifetime-priority/seed-2",
+          "records": 18,
+          "sha256": "0a29c9778b067814121a0d86d30153588a7a813f89a2c4b9e49663655e5de560"
+        },
+        {
+          "path": "comparisons-case1-seed3-pairwise.jsonl",
+          "run_id": "development/code-lifetime-priority/seed-3",
+          "records": 18,
+          "sha256": "e47c12db47d0102b9d533920c5284e2a2c8cb520a35d4e9376caabdda70bf9cd"
+        },
+        {
+          "path": "comparisons-case2-seed1-pairwise.jsonl",
+          "run_id": "development/telemetry-chain-evidence/seed-1",
+          "records": 18,
+          "sha256": "019e038a11a73a2c83de18ada1ca5b27e820b9eb14f927896b851a8692dd1c96"
+        },
+        {
+          "path": "comparisons-case2-seed2-pairwise.jsonl",
+          "run_id": "development/telemetry-chain-evidence/seed-2",
+          "records": 18,
+          "sha256": "932279d9dee3ac6ee673b025ca7d6bb10f192652ff202097ece56fd91fe9e470"
+        },
+        {
+          "path": "comparisons-case2-seed3-pairwise.jsonl",
+          "run_id": "development/telemetry-chain-evidence/seed-3",
+          "records": 18,
+          "sha256": "826aa63f72f33c665dc63f59fc64e191dc36e5f47dd89ef3b8ed597e2fb0de81"
+        }
+      ],
+      "original_archive": {
+        "name": "2026-09-20-evidence-development.tar.gz",
+        "bytes": 541905,
+        "sha256": "6dc73b228210eddbbb6e095d0c68d287458e7dbc043ace22bb3b59fcd34241bd"
+      }
+    },
+    {
+      "source_directory": "benchmarks/2026-09-20-evidence-engine",
+      "implementation_commit": "ad1315973c3d51cc9fce69959fd5220d43a4c412",
+      "manifest": {
+        "batch_size": 8,
+        "commit": "ad1315973c3d51cc9fce69959fd5220d43a4c412",
+        "concurrency": 1,
+        "convergence": false,
+        "fixture_sha256": "e37575e46ea0e09d679702c56e7fc3b01bca7ee340d1f9099ffc518b9e38300f",
+        "go_version": "go1.26.3",
+        "limitations": "Hand-authored smoke cases; no population accuracy claim. Initial shuffle is seeded; refined subsets can differ by mode and score ties use original input order. OpenAI is a listwise comparator; this measures complete adapters, not an isolated model architecture.",
+        "max_http_calls": 1000,
+        "mode_order": "cyclic rotation by case index plus seed index",
+        "model": "jev-1.13.0",
+        "modes": [
+          "pairwise",
+          "pairwise-expected",
+          "openai"
+        ],
+        "openai_effort": "none",
+        "openai_model": "gpt-5.6-luna",
+        "overall_timeout_minutes": 15,
+        "refinement_ratio": 0.5,
+        "request_timeout_seconds": 25,
+        "seeds": [
+          1,
+          2,
+          3
+        ],
+        "source_sha256": {
+          "go.mod": "527448a26f342127523316631178af2fa836d4228dec7cf2febe117d38e2c3d3",
+          "go.sum": "b42eb35e404293c82ca25580c43a7af16cfd1fae9700154d08abab4b797f681a",
+          "pkg/siftrank/batch.go": "b463ae06326f6f24c991050bdd261f69a68175e23db02477c66cbae86f3ceea9",
+          "pkg/siftrank/comparisons.go": "845f06d2ae69e008efbd781ec33798f988a959eeddbae84889bfddc43f391817",
+          "pkg/siftrank/comparisons_test.go": "4262b84c79464e20e01f31f1054b91ba18aed30ee5909d226b9c3f50cd9c0dd6",
+          "pkg/siftrank/config.go": "1070f0f49e6c57d1b5e3696018b4a4553a9c327d145c4f6de37658749ab1bb3a",
+          "pkg/siftrank/convergence.go": "31f2bb47dff31aa9f8f31e292703bc188012633cefaabba0eb967fe592f96ef3",
+          "pkg/siftrank/expected_ranks_test.go": "bda763d0569daf8f9339f8a9ff01467b71a2a90ae1e60438b08b834eca33acc9",
+          "pkg/siftrank/jev_choice.go": "9b768e81e501be1c43f9715095f3fd233f42999e3f3c08e6f8545e3d4ba9f8e6",
+          "pkg/siftrank/jev_choice_limits_test.go": "2072aef89eeace5c7bb794049f9df210a0dfb12fa30aebc209ffca28ed42112b",
+          "pkg/siftrank/jev_choice_test.go": "a219fcac3a7c5bf7e5cbaf92d94ce6d7b4042bd33269c859eb558aaddb2fb1ea",
+          "pkg/siftrank/jev_expected_ranks_test.go": "0c71e00e045fd1897ca334920b6422696fd538a9e6f68112ca1d0a41eb8246fd",
+          "pkg/siftrank/jev_live_benchmark_test.go": "467951956e575f99b5a4d9cf863952604715b19e22f441c4510acfd874d9804e",
+          "pkg/siftrank/jev_provider.go": "135798ecd187f9282a36b666b26c2bcda4934bea348950460df071cab3ca60bd",
+          "pkg/siftrank/jev_provider_test.go": "c62267e39b52d0e8cb0c978bb23c6caa3d6949585b2390f4d5b79e7a7e70d5d7",
+          "pkg/siftrank/llm.go": "a1409dd90608bfe0e77e4ada7270de6050f142c6fdc3cd0640b3c7037650a155",
+          "pkg/siftrank/loader.go": "990903c926ee4e9b8ddc2814c9500a70e9a9cede5f06c1be80cd2009d17b8ed2",
+          "pkg/siftrank/openai_provider.go": "3a4248c2e2bec38337e9081db5e523fc142cd98aa52838bf9d548eb2ad58e179",
+          "pkg/siftrank/siftrank.go": "e6b717db3bc3c3efbddf1dbc6c30e07a50294295a731ad697a61ba34d4da5e08",
+          "pkg/siftrank/siftrank_test.go": "41cab3632ee793a827f873fbb9954687e232c60d09b727405fb3007befb557f8",
+          "pkg/siftrank/viz.go": "aae51b1e7b96dbe6bb872a2bc0962b6b513f8cda6c59a4a537b74f0416786c77",
+          "scripts/inspect_comparisons.py": "5806592916dd21e0f1b43d63f7fb24dd73a5b58e09d4b6240883db86b71cf409"
+        },
+        "started_at": "2026-09-20T04:32:36.874378Z",
+        "trials": 3
+      },
+      "files": {
+        "fixture.json": {
+          "bytes": 31516,
+          "sha256": "e37575e46ea0e09d679702c56e7fc3b01bca7ee340d1f9099ffc518b9e38300f"
+        },
+        "manifest.json": {
+          "bytes": 3243,
+          "sha256": "2343e66aa587b83d7570a61d8fff9bc1d8628a8c512b67f0e64a031185bce897"
+        },
+        "complete.json": {
+          "bytes": 109,
+          "sha256": "5375979fdcf9b72b7cb017c42f519bc41967785db128a44f7f990df937d5a468"
+        },
+        "http.jsonl": {
+          "bytes": 11217108,
+          "sha256": "f8bc18279539c885570550128cc732bf60474b4ecf5ad305dff51f6a6118b4a3"
+        }
+      },
+      "selected_receipts": [
+        {
+          "path": "comparisons-case0-seed1-pairwise.jsonl",
+          "run_id": "engine/build-impact-heldout/seed-1",
+          "records": 18,
+          "sha256": "f5e609ae7f6308f23c97f4fc0f8a00c4e2302123b1f8c9707974721d8cb3a559"
+        },
+        {
+          "path": "comparisons-case0-seed2-pairwise.jsonl",
+          "run_id": "engine/build-impact-heldout/seed-2",
+          "records": 18,
+          "sha256": "36b1ce02a694eadcb804887a1301ab488fb9f264e8206720d903c96587800334"
+        },
+        {
+          "path": "comparisons-case0-seed3-pairwise.jsonl",
+          "run_id": "engine/build-impact-heldout/seed-3",
+          "records": 18,
+          "sha256": "7bf2d03cf51db5f47ae15308303019e1717560681da6951ffa2e01458f7083d4"
+        },
+        {
+          "path": "comparisons-case1-seed1-pairwise.jsonl",
+          "run_id": "engine/service-window-policy-heldout/seed-1",
+          "records": 18,
+          "sha256": "191990c0fcf879667ddd4d4f781ea36f5f0bbf47f3c16f3fff5e445e2a7796b0"
+        },
+        {
+          "path": "comparisons-case1-seed2-pairwise.jsonl",
+          "run_id": "engine/service-window-policy-heldout/seed-2",
+          "records": 18,
+          "sha256": "4a7bb52a050c97b5fd5079fe6adf27db70ba66dec860e0e0ee411d370b99cb2d"
+        },
+        {
+          "path": "comparisons-case1-seed3-pairwise.jsonl",
+          "run_id": "engine/service-window-policy-heldout/seed-3",
+          "records": 18,
+          "sha256": "2ef59b516e764fd77c9e343283aeb8ecbd46c815c74e8422e69f380ed175ffcf"
+        },
+        {
+          "path": "comparisons-case2-seed1-pairwise.jsonl",
+          "run_id": "engine/dependency-advisory-heldout/seed-1",
+          "records": 18,
+          "sha256": "13b7928dac295f3142f60fe66da133e4689174face0beead6dd1141ffd115937"
+        },
+        {
+          "path": "comparisons-case2-seed2-pairwise.jsonl",
+          "run_id": "engine/dependency-advisory-heldout/seed-2",
+          "records": 18,
+          "sha256": "a8622e39379b7f81d7ba17498d01943a0d3e0913ef689cdce318156099255000"
+        },
+        {
+          "path": "comparisons-case2-seed3-pairwise.jsonl",
+          "run_id": "engine/dependency-advisory-heldout/seed-3",
+          "records": 18,
+          "sha256": "3de5c553c84c763fc936c3dbebe2bc283f32d594c83f23535c89fd0664693483"
+        }
+      ],
+      "original_archive": {
+        "name": "2026-09-20-evidence-engine.tar.gz",
+        "bytes": 560191,
+        "sha256": "0752bdf9092e42f11c7d607ad281a19d572f9fb75e5f42d6791d54fd25e8a037"
+      }
+    }
+  ],
+  "limits": [
+    "These are old synthetic benchmark runs, not fresh inference, new holdouts, independent incidents, or an analyst study.",
+    "The historical directory name engine includes cases once reserved and then already used in prior experiments; it is not a fresh holdout.",
+    "Pair observations repeat candidates and pairs across seeds, rounds, and changing batch contexts. Counts are correlated.",
+    "Recorded probabilities are within-batch preferences, not calibrated error probabilities.",
+    "Labels must only evaluate the review order. Equal-grade pairs and exact probability ties still consume review budget; a wrong preference requires unequal grades and a non-tied model preference in the wrong direction.",
+    "All original selected receipt and wire fields are preserved; run_id, case_id, receipt_index, and source_http_line only provide scoped cross-references.",
+    "Raw request/response bodies are included but authorization headers were never recorded by the source harness.",
+    "This package does not claim that reviewing close comparisons improves final evidence recall or corrects rankings.",
+    "The eight-candidate live example is a fixed first-eight slice of the identity fixture, chosen by source order rather than model performance."
+  ]
+}

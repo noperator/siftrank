@@ -1,0 +1,37 @@
+{
+  "criterion": "Prioritize these independent identity configurations for review of effective access. Evaluate the named subject at 2026-01-15T12:00:00Z, using only the listed rules. A rule applies only to its exact resource and action unless it explicitly says all; applicable explicit denies override allows. Assume no unlisted grants, memberships, trust, or rules. Highest priority: the subject can currently perform identity.write on resource Cedar (environment production), directly or through an explicitly permitted role-assumption chain. Next: it can identity.write on resource Birch (environment staging), but not Cedar. Next: it can identity.read on Cedar, but neither of those writes. Lowest: none of those abilities. Expired sessions and unsatisfied conditions cannot grant access.",
+  "candidates": [
+    {
+      "id": "d0e4435ce38",
+      "value": "Subject quinn. Membership: quinn -> group G5. G5 allows identity.write on Cedar and identity.read on Birch. Deny identity.write on resource Maple. Cedar environment=production; Birch environment=staging; Maple environment=production."
+    },
+    {
+      "id": "d62a6a37aa2",
+      "value": "Subject morgan. Allow identity.read and identity.write on Cedar. Deny identity.write on Cedar. Cedar environment=production; Birch environment=staging."
+    },
+    {
+      "id": "de81e650914",
+      "value": "Subject sam. Membership: sam -> G5. G5 allows identity.read on Cedar and identity.write on Maple. Cedar environment=production; Birch environment=staging; Maple environment=production."
+    },
+    {
+      "id": "d8a75fe88b7",
+      "value": "Subject jamie. Session A grants all actions on Cedar and Birch, expires=2026-01-15T11:59:59Z. Session B grants identity.read on Cedar, expires=2026-01-15T11:59:58Z. Cedar environment=production; Birch environment=staging."
+    },
+    {
+      "id": "d3536dd1fd8",
+      "value": "Subject quinn. Allow all actions on Birch. Deny identity.delete on Birch. Allow identity.read on Cedar. Cedar environment=production; Birch environment=staging."
+    },
+    {
+      "id": "ddf074042c2",
+      "value": "Subject riley. riley may assume R2 and R2 trusts riley. R2 allows identity.write on Birch. R2 has no permission on Cedar. Cedar environment=production; Birch environment=staging."
+    },
+    {
+      "id": "d1b61ae671f",
+      "value": "Subject riley. riley may assume role R2. R2 trusts riley. R2 may assume role R7. R7 trusts R2. R7 allows identity.write on Cedar. Both assumptions have no conditions. Cedar environment=production; Birch environment=staging."
+    },
+    {
+      "id": "dd05a65b8f0",
+      "value": "Subject alex. Allow identity.read on Cedar. Allow identity.write on Cedar if session.region=east. Allow identity.write on Birch if session.mfa=true. Session region=west, mfa=false, expires=2026-01-15T13:00:00Z. Cedar environment=production; Birch environment=staging."
+    }
+  ]
+}

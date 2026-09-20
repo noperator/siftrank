@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "cases": {
+    "demo": {
+      "criterion": "Prioritize these independent identity configurations for review of effective access. Evaluate the named subject at 2026-01-15T12:00:00Z, using only the listed rules. A rule applies only to its exact resource and action unless it explicitly says all; applicable explicit denies override allows. Assume no unlisted grants, memberships, trust, or rules. Highest priority: the subject can currently perform identity.write on resource Cedar (environment production), directly or through an explicitly permitted role-assumption chain. Next: it can identity.write on resource Birch (environment staging), but not Cedar. Next: it can identity.read on Cedar, but neither of those writes. Lowest: none of those abilities. Expired sessions and unsatisfied conditions cannot grant access.",
+      "grades": {
+        "d0e4435ce38": 3,
+        "d62a6a37aa2": 1,
+        "de81e650914": 1,
+        "d8a75fe88b7": 0,
+        "d3536dd1fd8": 2,
+        "ddf074042c2": 2,
+        "d1b61ae671f": 3,
+        "dd05a65b8f0": 1
+      }
+    }
+  }
+}
