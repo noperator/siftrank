@@ -1,61 +1,96 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="img/logo-dark.png">
-    <img alt="logo" src="img/logo-light.png" width="500px">
+    <img alt="SiftRank" src="img/logo-light.png" width="500px">
   </picture>
   <br>
-  Use LLMs for document ranking.
+  Use LLMs to find the needles in your haystack.
 </p>
+
+**19 Sep '26: SiftRank now supports Jev**, alongside OpenAI and compatible Chat Completions APIs. Use `--provider jev` to get started; see [Jev](#jev) below.
+
+**Using an agent?** Install the [SiftRank agent skill](#agent-skill) to help it retrieve the most relevant items from large datasets on the fly.
 
 ## Description
 
-Got a bunch of data? Want to throw it at an LLM to find the most "interesting" stuff? If you simply YOLO your data into a ChatGPT session, you'll run into problems:
-- Nondeterminism: Doesn't always respond with the same result
-- Limited context: Can't pass in all the data at once, need to break it up
-- Output contraints: Sometimes doesn't return all the data you asked it to review
-- Scoring subjectivity: Struggles to assign a consistent numeric score to an individual item
+You've got a *lot* of data on your hands, and you need to find signal in the noise. Problem is, your desired "signal" doesn't fit a predefined regex (more of a semantic you-know-it-when-you-see-it kind of thing). And there's way more stuff to look at than you can possibly read through. Even your agent's context window can't fit it all! *Has this ever happened to you?*
 
-`siftrank` is an implementation of the **Sift**Rank document ranking algorithm that uses LLMs to efficiently find the items in any dataset that are most relevant to a given prompt:
-- **S**tochastic: Randomly samples the dataset into small batches.
-- **I**nflective: Looks for a natural inflection point in the scores that distinguishes particularly relevant items from the rest.
-- **F**ixed: Caps the maximum number of LLM calls so the computational complexity remains linear in the worst case.
-- **T**rial: Repeatedly compares batched items until the relevance scores stabilize.
+Tell SiftRank what you're looking for, and it quickly searches your data to bring the most relevant items to the top. Rank prose passages, files, JSON, search results, code, support tickets, product listings, or anything else you can represent as text.
 
-Use LLMs to rank anything. No fine-tuning. No domain-specific models. Just an off-the-shelf model and your ranking prompt. Typically runs in seconds and costs pennies.
+If you otherwise simply YOLO your data into a ChatGPT session and ask it to find what matters, you'll run into problems:
+
+- **Nondeterminism:** Ask again, and you may get a different answer.
+- **Limited context:** Your entire collection may not fit in one request.
+- **Output constraints:** The model may omit items or stop before finishing the list.
+- **Scoring subjectivity:** A numeric score assigned to one item may not be comparable to a score assigned in another request.
+
+SiftRank breaks the collection into small, randomized batches and asks a model to compare items against your ranking prompt. It combines those relative orderings across repeated trials, checks for convergence, and progressively focuses on the most relevant items. You get a ranked list, with the greatest precision concentrated near the top. Use an off-the-shelf model and a prompt describing what you want to find. No fine-tuning or domain-specific model required. Small, fast models work great.
+
+For the algorithm and an application to vulnerability research, see [Sift or Get Off the PoC: Applying Information Retrieval to Vulnerability Research with SiftRank](https://arxiv.org/abs/2512.06155). For another practical example, see VulnCheck's [SiftRanking Canary Intelligence](https://www.vulncheck.com/blog/siftrank_canaries), which uses SiftRank to prioritize exploitation telemetry for investigation.
 
 ## Getting started
 
 ### Install
 
-```
+```sh
 go install github.com/noperator/siftrank/cmd/siftrank@latest
 ```
 
+Note that installing the CLI with `go install` does not install the skill.
+
+### Agent skill
+
+The [SiftRank agent skill](.agents/skills/siftrank/SKILL.md) teaches an agent how to decompose a large collection of data into useful candidates to be ranked, choose how to format the input data, run SiftRank, and investigate the strongest results in their original context. Use it for *any* task where there is too much material to read directly.
+
+The skill uses the portable Agent Skills format. Install the `siftrank` folder in your agent's supported skills directory:
+
+```sh
+git clone https://github.com/noperator/siftrank
+cd siftrank
+mkdir -p ~/.agents/skills
+cp -R .agents/skills/siftrank ~/.agents/skills/
+```
+
+Install the CLI and configure an API key as described below, then ask your agent to use the skill. For example:
+
+> Use the SiftRank skill to find the Jira comments in this data export that best explain why the project was delayed. Preserve source locations and inspect the highest-ranked passages before summarizing your findings.
+
 ### Configure
 
-Either set an `OPENAI_API_KEY` environment variable, or create a named configuration profile in  `~/.config/siftrank/config.yaml` or `./config.yaml` containing the API key. The `default` profile auto-loads when `-P` is not specified, and CLI flags always take precedence over profile values. Use `*_cmd` to retrieve secrets from a password manager or other command rather than storing them in plaintext. See [`config-example.yaml`](config-example.yaml) for all available options.
+OpenAI is the default provider. Set `OPENAI_API_KEY`, or store your settings in a configuration profile in `~/.config/siftrank/config.yaml` or `./config.yaml`.
 
 ```yaml
 default: nano
 profiles:
   nano:
+    provider: openai
     api_key_cmd: op read op://myvault/openai-api-key/credential
     model: gpt-5-nano-2025-08-07
     effort: minimal
 ```
 
+This example retrieves the key with the 1Password CLI. Use `api_key_cmd` to retrieve a secret from a command, or `api_key` to supply it directly.
+
+The profile selected by `default` loads when `--profile` is not specified. CLI flags override profile settings; the provider's API key environment variable takes precedence over the profile's key. See [`config-example.yaml`](config-example.yaml) for all available options.
+
+To use another compatible Chat Completions API, set `--base-url` to its API URL, including `/v1`, and `--model` to a model it supports. Select a model and endpoint that support the structured output SiftRank requests.
+
 ### Usage
 
 ```
-siftrank -h
+Use LLMs for document ranking via the SiftRank algorithm
+
+Usage:
+  siftrank [flags]
 
 Options:
       --config-file string   path to config file (overrides discovery)
   -f, --file string          input file (required)
-  -m, --model string         OpenAI model name (default "gpt-4o-mini")
+  -m, --model string         model name (Jev default: jev-latest) (default "gpt-4o-mini")
   -o, --output string        JSON output file
   -P, --profile string       use a named profile from the config file
   -p, --prompt string        initial prompt (prefix with @ to use a file)
+      --provider string      ranking provider: openai or jev (default "openai")
   -r, --relevance            post-process each item by providing relevance justification (skips round 1)
 
 Visualization:
@@ -69,7 +104,7 @@ Debug:
       --trace string   trace file path for streaming trial execution state (JSON Lines format)
 
 Advanced:
-  -u, --base-url string         OpenAI API base URL (for compatible APIs like vLLM)
+  -u, --base-url string         provider API base URL, including /v1
   -b, --batch-size int          number of items per batch (default 10)
   -c, --concurrency int         max concurrent LLM calls across all trials (default 50)
   -e, --effort string           reasoning effort level: none, minimal, low, medium, high
@@ -84,109 +119,147 @@ Advanced:
       --stable-trials int       stable trials required for convergence (default 5)
       --template string         template for each object (prefix with @ to use a file) (default "{{.Data}}")
       --tokens int              max tokens per batch (default 128000)
+
+Flags:
+  -h, --help   help for siftrank
 ```
 
-Compares 100 [sentences](https://github.com/noperator/siftrank/blob/main/testdata/sentences.txt) in 7 seconds.
+#### Rank text
 
-```
+For plain text input, each nonempty line is one item. From a checkout of this repository, try ranking the [sample sentences](testdata/sentences.txt):
+
+```sh
 siftrank \
-    -f testdata/sentences.txt \
-    -p 'Rank each of these items according to their relevancy to the concept of "time".' |
-    jq -r '.[:10] | map(.value)[]' |
-    nl
+  --file testdata/sentences.txt \
+  --prompt 'Rank these sentences by relevance to time, clocks, and the passage of time.' \
+  > ranked.json
 
-   1  The train arrived exactly on time.
-   2  The old clock chimed twelve times.
-   3  The clock ticked steadily on the wall.
-   4  The bell rang, signaling the end of class.
-   5  The rooster crowed at the break of dawn.
-   6  She climbed to the top of the hill to watch the sunset.
-   7  He watched as the leaves fell one by one.
-   8  The stars twinkled brightly in the clear night sky.
-   9  He spotted a shooting star while stargazing.
-  10  She opened the curtains to let in the morning light.
+jq -r '.[:10][].value' ranked.json | nl
 ```
 
-<details><summary>Advanced usage</summary>
+The output is a JSON array ordered from most to least relevant. `rank: 1` is the top result. The `score` is an internal ranking score, not a probability or a calibrated confidence value.
 
-#### JSON support
+Add `--watch` for a live terminal visualization.
 
-If the input file is a JSON document, it will be read as an array of objects and each object will be used for ranking.
+#### Jev
 
-For instance, two objects would be loaded and ranked from this document:
+SiftRank asks Jev to compare pairs of items within each batch, then combines the returned probabilities into an ordering and runs its normal ranking algorithm. Set `TYPESAFE_API_KEY` and select Jev on the command line:
+
+```sh
+export TYPESAFE_API_KEY='your-api-key'
+
+siftrank \
+  --provider jev \
+  --model jev-latest \
+  --effort '' \
+  --file testdata/sentences.txt \
+  --prompt 'Rank these sentences by relevance to time, clocks, and the passage of time.' \
+  > ranked.json
+```
+
+The default model is `jev-latest` when no model is supplied by a flag or profile. The command above explicitly selects it and clears any reasoning effort inherited from a default profile. Jev does not support reasoning effort or the `--relevance` option.
+
+#### Rank JSON objects with a template
+
+For structured data, pass a JSON array and a [Go template](https://pkg.go.dev/text/template) describing what the model should see. This lets you control the ranking input while preserving each complete original object for downstream use.
+
+For example, save this as `candidates.json`:
 
 ```json
 [
   {
-    "path": "/foo",
-    "code": "bar"
+    "id": "article-1",
+    "title": "Repairing a mechanical clock",
+    "content": {
+      "excerpt": "How to diagnose a worn escapement and restore accurate timekeeping."
+    },
+    "source": {
+      "url": "https://example.com/clock-repair"
+    },
+    "metadata": {
+      "collection": "saved-articles"
+    }
   },
   {
-    "path": "/baz",
-    "code": "nope"
+    "id": "article-2",
+    "title": "Growing tomatoes in containers",
+    "content": {
+      "excerpt": "Choosing soil, watering consistently, and supporting tomato plants."
+    },
+    "source": {
+      "url": "https://example.com/container-tomatoes"
+    },
+    "metadata": {
+      "collection": "saved-articles"
+    }
   }
 ]
 ```
 
-#### Templates
+Save this as `candidate.tmpl`:
 
-It is possible to include each element from the input file in a template using the [Go template syntax](https://pkg.go.dev/text/template) via the `--template "template string"` (or `--template @file.tpl`) argument.
+```gotemplate
+ID: {{ .id }}
+Title: {{ .title }}
+Source: {{ .source.url }}
 
-For text input files, each line can be referenced in the template with the `Data` variable:
-
-```
-Anything you want with {{ .Data }}
-```
-
-For JSON input files, each object in the array can be referenced directly. For instance, elements of the previous JSON example can be referenced in the template code like so:
-
-```
-# {{ .path }}
-
-{{ .code }}
+{{ .content.excerpt }}
 ```
 
-Note in the following example that the resulting `value` key contains the actual value being presented for ranking (as described by the template), while the `object` key contains the entire original object from the input file for easy reference.
+Then rank the objects:
 
-```
-# Create some test JSON data.
-seq 9 |
-    paste -d @ - - - |
-    parallel 'echo {} | tr @ "\n" | jo -a | jo nums=:/dev/stdin' |
-    jo -a |
-    tee input.json
-
-[{"nums":[1,2,3]},{"nums":[4,5,6]},{"nums":[7,8,9]}]
-
-# Use template to extract the first element of the nums array in each input object.
+```sh
 siftrank \
-	-f input.json \
-	-p 'Which is biggest?' \
-	--template '{{ index .nums 0 }}' \
-	--max-trials 1 |
-	jq -c '.[]'
-
-{"key":"eQJpm-Qs","value":"7","object":{"nums":[7,8,9]},"score":0,"exposure":1,"rank":1}
-{"key":"SyJ3d9Td","value":"4","object":{"nums":[4,5,6]},"score":2,"exposure":1,"rank":2}
-{"key":"a4ayc_80","value":"1","object":{"nums":[1,2,3]},"score":3,"exposure":1,"rank":3}
+  --file candidates.json \
+  --template @candidate.tmpl \
+  --prompt 'Rank these articles by how useful they would be to someone repairing a clock.' \
+  > ranked.json
 ```
 
-</details>
+Each result's `value` contains the rendered template, and `document` contains the entire original object, including `metadata`, which this template does not show to the model. To extract the top 20 original objects:
+
+```sh
+jq '[.[:20][].document]' ranked.json
+```
+
+Templates can also be supplied inline with `--template '{{ .title }}: {{ .content.excerpt }}'`. Use `{{ index .tags 0 }}` to access an array element. For plain text input, use `{{ .Data }}` to reference the line.
+
+Include a unique ID or source locator in the template when otherwise identical text represents distinct items. SiftRank derives item keys from the rendered text.
+
+#### Input and output details
+
+- Files ending in `.json` are read as JSON arrays. Use `--json` to force JSON parsing for another filename or a stream. JSON Lines is not the same format.
+- On Unix, read standard input with `--file /dev/stdin`; add `--json` when piping a JSON array.
+- Use `--prompt @prompt.txt` or `--template @candidate.tmpl` to load longer prompts or templates from files.
+- Results include the rendered `value`, original JSON `document` (or `null` for text), `rank`, `score`, `exposure`, `rounds`, and a zero-based `input_index` referring to the original input.
+- SiftRank adjusts batch size to fit estimated provider limits. It does not split oversized individual items; split those before ranking.
+
+#### Tips
+
+Each input item is something you want ranked. Split large data sources into useful pieces: sections of a report, passages from a book, individual messages, functions in a codebase, or whole files when they are small enough.
+
+Smaller items let the model make more focused comparisons, but they should have enough context to stand on their own. Preserve titles, surrounding explanations, and source locations where useful. A JSON object (shown above) can retain additional metadata without including it all in the template.
+
+Write a prompt that states the actual selection criterion: "most useful for diagnosing intermittent connection failures" is more specific than "how to fix my network." Inspect the leading results and follow their source references when you need more context.
 
 ## Back matter
 
-### Acknowledgements
-
-I released the prototype of this tool, Raink, while at Bishop Fox. See the original [presentation](https://www.youtube.com/watch?v=IBuL1zY69tY), [blog post](https://bishopfox.com/blog/raink-llms-document-ranking) and [CLI tool](https://github.com/bishopfox/raink).
-
 ### See also
 
+- **Phrack article**: link will be added when published
+- **Black Hat USA talk**: link will be added when published
+- [Sift or Get Off the PoC: Applying Information Retrieval to Vulnerability Research with SiftRank](https://arxiv.org/abs/2512.06155)
+- [SiftRanking Canary Intelligence](https://www.vulncheck.com/blog/siftrank_canaries)
 - [O(N) the Money: Scaling Vulnerability Research with LLMs](https://noperator.dev/posts/on-the-money/)
 - [Using LLMs to solve security problems](https://noperator.dev/posts/ai-for-security/)
 - [Hard problems that reduce to document ranking](https://noperator.dev/posts/document-ranking-for-complex-problems/)
 - [Commentary: Critical Thinking - Bug Bounty Podcast](https://youtu.be/qd08UBNpu7k?si=pMVEYtmKnyuJkL9B&t=1511)
 - [Discussion: Hacker News](https://news.ycombinator.com/item?id=43174910)
 - [Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting](https://arxiv.org/html/2306.17563v2)
+
+### Acknowledgements
+
+I released the prototype of this tool, Raink, while at Bishop Fox. See the original [presentation](https://www.youtube.com/watch?v=IBuL1zY69tY), [blog post](https://bishopfox.com/blog/raink-llms-document-ranking), and [CLI tool](https://github.com/bishopfox/raink).
 
 ### To-do
 
@@ -219,6 +292,6 @@ I released the prototype of this tool, Raink, while at Bishop Fox. See the origi
 
 </details>
 
-### License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
