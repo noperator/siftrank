@@ -19,10 +19,15 @@ import (
 
 // customTransport captures response headers and body for rate limit handling
 type customTransport struct {
-	Transport  http.RoundTripper
-	Headers    http.Header
-	StatusCode int
-	Body       []byte
+	Transport http.RoundTripper
+}
+
+type responseCaptureKey struct{}
+
+type responseCapture struct {
+	headers    http.Header
+	statusCode int
+	body       []byte
 }
 
 func (t *customTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -31,27 +36,28 @@ func (t *customTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	t.Headers = resp.Header
-	t.StatusCode = resp.StatusCode
-
-	t.Body, err = io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	resp.Body = io.NopCloser(bytes.NewBuffer(t.Body))
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	if capture, ok := req.Context().Value(responseCaptureKey{}).(*responseCapture); ok {
+		capture.headers = resp.Header.Clone()
+		capture.statusCode = resp.StatusCode
+		capture.body = body
+	}
 
 	return resp, nil
 }
 
 // OpenAIProvider implements LLMProvider using OpenAI API
 type OpenAIProvider struct {
-	client    *openai.Client
-	model     openai.ChatModel
-	effort    string
-	logger    *slog.Logger
-	encoding  *tiktoken.Tiktoken
-	transport *customTransport
+	client   *openai.Client
+	model    openai.ChatModel
+	effort   string
+	logger   *slog.Logger
+	encoding *tiktoken.Tiktoken
 }
 
 // OpenAIConfig configures the OpenAI provider
@@ -94,12 +100,11 @@ func NewOpenAIProvider(cfg OpenAIConfig) (*OpenAIProvider, error) {
 	client := openai.NewClient(clientOptions...)
 
 	return &OpenAIProvider{
-		client:    &client,
-		model:     cfg.Model,
-		effort:    cfg.Effort,
-		logger:    cfg.Logger,
-		encoding:  encoding,
-		transport: transport,
+		client:   &client,
+		model:    cfg.Model,
+		effort:   cfg.Effort,
+		logger:   cfg.Logger,
+		encoding: encoding,
 	}, nil
 }
 
@@ -124,6 +129,8 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, opts *Comp
 
 		// Create timeout context for this attempt
 		timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		capture := &responseCapture{}
+		requestCtx := context.WithValue(timeoutCtx, responseCaptureKey{}, capture)
 
 		// Build request
 		params := openai.ChatCompletionNewParams{
@@ -162,7 +169,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, opts *Comp
 		}
 
 		// Make API call
-		completion, err := p.client.Chat.Completions.New(timeoutCtx, params)
+		completion, err := p.client.Chat.Completions.New(requestCtx, params)
 		cancel() // Cancel immediately after API call to avoid resource leak
 
 		if err == nil {
@@ -215,15 +222,15 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, opts *Comp
 		}
 
 		// Handle rate limits (429)
-		if p.transport.StatusCode == http.StatusTooManyRequests {
-			p.handleRateLimit(&backoff, maxBackoff)
+		if capture.statusCode == http.StatusTooManyRequests {
+			p.handleRateLimit(capture, &backoff, maxBackoff)
 			continue
 		}
 
 		// Handle server errors (5xx) - retry
-		if p.transport.StatusCode >= 500 && p.transport.StatusCode < 600 {
+		if capture.statusCode >= 500 && capture.statusCode < 600 {
 			p.logger.Debug("Server error, retrying",
-				"status", p.transport.StatusCode,
+				"status", capture.statusCode,
 				"backoff", backoff)
 			time.Sleep(backoff)
 			backoff = minDuration(backoff*2, maxBackoff)
@@ -231,12 +238,12 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, opts *Comp
 		}
 
 		// Client errors (4xx except 429) are unrecoverable
-		if p.transport.StatusCode >= 400 && p.transport.StatusCode < 500 {
+		if capture.statusCode >= 400 && capture.statusCode < 500 {
 			p.logger.Error("Unrecoverable client error",
-				"status", p.transport.StatusCode,
+				"status", capture.statusCode,
 				"error", err)
 			return "", fmt.Errorf("unrecoverable error (status %d): %w",
-				p.transport.StatusCode, err)
+				capture.statusCode, err)
 		}
 
 		// Other errors - retry with backoff
@@ -247,9 +254,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, opts *Comp
 }
 
 // handleRateLimit handles rate limit errors with intelligent backoff
-func (p *OpenAIProvider) handleRateLimit(backoff *time.Duration, maxBackoff time.Duration) {
+func (p *OpenAIProvider) handleRateLimit(capture *responseCapture, backoff *time.Duration, maxBackoff time.Duration) {
 	// Log rate limit headers
-	for key, values := range p.transport.Headers {
+	for key, values := range capture.headers {
 		if strings.HasPrefix(key, "X-Ratelimit") || strings.HasPrefix(key, "X-RateLimit") {
 			for _, value := range values {
 				p.logger.Debug("Rate limit header", "key", key, "value", value)
@@ -257,19 +264,19 @@ func (p *OpenAIProvider) handleRateLimit(backoff *time.Duration, maxBackoff time
 		}
 	}
 
-	if p.transport.Body != nil {
-		p.logger.Debug("Rate limit response body", "body", string(p.transport.Body))
+	if capture.body != nil {
+		p.logger.Debug("Rate limit response body", "body", string(capture.body))
 	}
 
 	// Extract suggested wait time
-	resetTokensStr := p.transport.Headers.Get("X-Ratelimit-Reset-Tokens")
+	resetTokensStr := capture.headers.Get("X-Ratelimit-Reset-Tokens")
 	if resetTokensStr == "" {
-		resetTokensStr = p.transport.Headers.Get("X-RateLimit-Reset-Tokens")
+		resetTokensStr = capture.headers.Get("X-RateLimit-Reset-Tokens")
 	}
 
-	remainingTokensStr := p.transport.Headers.Get("X-Ratelimit-Remaining-Tokens")
+	remainingTokensStr := capture.headers.Get("X-Ratelimit-Remaining-Tokens")
 	if remainingTokensStr == "" {
-		remainingTokensStr = p.transport.Headers.Get("X-RateLimit-Remaining-Tokens")
+		remainingTokensStr = capture.headers.Get("X-RateLimit-Remaining-Tokens")
 	}
 
 	remainingTokens, _ := strconv.Atoi(remainingTokensStr)
